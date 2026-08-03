@@ -8,7 +8,7 @@ hostname = www.sxsy13.com
 
 [Script]
 # 1. 抓取 Cookie 脚本（访问签到页时触发）
-# http-request ^https:\/\/www\.sxsy13\.com\/plugin\.php\?id=k_misign script-path=https://raw.githubusercontent.com/liuxianlake/zygz/refs/heads/main/loon-scripts/%E5%B0%9A%E9%A6%99%E4%B9%A6%E9%99%A2/sxsy13_cookie.js, requires-body=false, tag=SXSY13获取Cookie
+http-request ^https:\/\/www\.sxsy13\.com\/plugin\.php\?id=k_misign script-path=https://raw.githubusercontent.com/liuxianlake/zygz/refs/heads/main/loon-scripts/%E5%B0%9A%E9%A6%99%E4%B9%A6%E9%99%A2/sxsy13_cookie.js, requires-body=false, tag=SXSY13获取Cookie
 
 # 2. 定时自动签到脚本（每天早上 8:30 自动运行）
 cron "0 8 * * *" script-path=https://raw.githubusercontent.com/liuxianlake/zygz/refs/heads/main/loon-scripts/%E5%B0%9A%E9%A6%99%E4%B9%A6%E9%99%A2/sxsy13_checkin.js, tag=SXSY13自动签到
