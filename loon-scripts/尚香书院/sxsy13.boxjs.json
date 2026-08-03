@@ -3,7 +3,7 @@
   "name": "尚香书院 论坛脚本订阅",
   "author": "@YourName",
   "icon": "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png",
-  "repo": "https://github.com/你的GitHub用户名/loon-scripts",
+  "repo": "https://github.com/liuxianlake/zygz/loon-scripts",
   "apps": [
     {
       "id": "SXSY13_CHECKIN",
@@ -14,7 +14,7 @@
       "author": "@YourName",
       "icon": "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png",
       "settings": [],
-      "script": "https://raw.githubusercontent.com/zygz/loon-scripts/main/尚香书院/sxsy13_checkin.js",
+      "script": "https://raw.githubusercontent.com/liuxianlake/zygz/loon-scripts/main/尚香书院/sxsy13_checkin.js",
       "icons": [
         "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png"
       ],
