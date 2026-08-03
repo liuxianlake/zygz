@@ -1,0 +1,38 @@
+{
+  "id": "sxsy13.app.sub",
+  "name": "尚香书院 论坛脚本订阅",
+  "author": "@YourName",
+  "icon": "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png",
+  "repo": "https://github.com/你的GitHub用户名/loon-scripts",
+  "apps": [
+    {
+      "id": "SXSY13_CHECKIN",
+      "name": "尚香书院 自动签到",
+      "keys": [
+        "sxsy13_cookie"
+      ],
+      "author": "@YourName",
+      "icon": "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png",
+      "settings": [],
+      "script": "https://raw.githubusercontent.com/zygz/loon-scripts/main/尚香书院/sxsy13_checkin.js",
+      "icons": [
+        "https://raw.githubusercontent.com/kwatanabebd/gits/main/icons/sxsy13.png"
+      ],
+      "descs_html": [
+        "<b>使用说明：</b>",
+        "1. 先导入 Loon 插件并访问论坛签到页获取 Cookie。",
+        "2. 获取成功后，可在下方查看到保存在本地的 Cookie 凭证。",
+        "3. 脚本将于每天设定好的 Cron 时间自动运行。"
+      ],
+      "settings": [
+        {
+          "id": "sxsy13_cookie",
+          "name": "尚香书院 Cookie",
+          "val": "",
+          "type": "textarea",
+          "desc": "通过抓取脚本自动获取，也可手动在此填入/修改。"
+        }
+      ]
+    }
+  ]
+}
