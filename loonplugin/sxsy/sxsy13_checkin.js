@@ -35,13 +35,14 @@ $httpClient.get(
                 error
             );
         } else {
+
             console.log(body);
 
-$notification.post(
-    "sxsy13签到",
-    "响应长度",
-    String(body.length)
-);
+            $notification.post(
+                "sxsy13签到",
+                "响应长度",
+                String(body.length)
+            );
         }
 
         $done();
