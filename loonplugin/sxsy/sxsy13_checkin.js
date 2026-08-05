@@ -14,13 +14,13 @@ if (!cookie) {
     $done();
 }
 
-const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&format=text&formhash=b3e3f9b1";
+const url = "https://sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&format=text&formhash=b3e3f9b1";
 
 const headers = {
     "Cookie": cookie,
-    "User-Agent": "Mozilla/5.0",
-    "Referer": "https://www.sxsy13.com/",
-    "X-Requested-With": "XMLHttpRequest"
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
+    "Referer": "https://sxsy13.com/index.php?mobile=2",
+    "Accept": "*/*"
 };
 
 $httpClient.get(
