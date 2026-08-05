@@ -18,7 +18,9 @@ const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qianda
 
 const headers = {
     "Cookie": cookie,
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "https://www.sxsy13.com/",
+    "X-Requested-With": "XMLHttpRequest"
 };
 
 $httpClient.get(
