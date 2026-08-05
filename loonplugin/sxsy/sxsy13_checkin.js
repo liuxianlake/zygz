@@ -14,7 +14,7 @@ if (!cookie) {
     $done();
 }
 
-const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&format=global_usernav_extra&inajax=1";
+const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&formhash=092d5c74&format=global_usernav_extra&inajax=1&ajaxtarget=k_misign_topb";
 
 const headers = {
     "Cookie": cookie,
