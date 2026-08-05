@@ -41,7 +41,7 @@ $httpClient.get(
             $notification.post(
                 "sxsy13签到",
                 "响应长度",
-                String(body.length)
+                body
             );
         }
 
