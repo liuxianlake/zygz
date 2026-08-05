@@ -37,11 +37,11 @@ $httpClient.get(
         } else {
             console.log(body);
 
-            $notification.post(
-                "sxsy13签到",
-                "请求完成",
-                "已获取签到页面"
-            );
+$notification.post(
+    "sxsy13签到",
+    "响应长度",
+    String(body.length)
+);
         }
 
         $done();
