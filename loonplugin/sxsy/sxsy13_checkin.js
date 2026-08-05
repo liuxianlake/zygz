@@ -14,7 +14,7 @@ if (!cookie) {
     $done();
 }
 
-const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&formhash=092d5c74&format=global_usernav_extra&inajax=1&ajaxtarget=k_misign_topb";
+const url = "https://www.sxsy13.com/plugin.php?id=k_misign:sign&operation=qiandao&format=text&formhash=b3e3f9b1";
 
 const headers = {
     "Cookie": cookie,
@@ -40,8 +40,8 @@ $httpClient.get(
 
             $notification.post(
                 "sxsy13签到",
-                "响应长度",
-                String(body.length)
+                "返回内容",
+                body
             );
         }
 
