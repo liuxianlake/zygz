@@ -5,8 +5,6 @@
 
 const cookie = $persistentStore.read("sxsy13_cookie");
 
-console.log(cookie);
-
 if (!cookie) {
     $notification.post(
         "sxsy13签到",
@@ -17,14 +15,6 @@ if (!cookie) {
 }
 
 const url = "https://sxsy13.com/index.php?mobile=2";
-
-const formhashMatch = body.match(/['"]formhash['"]:\s*["']([^"']+)["']/);
-
-if (formhashMatch) {
-    console.log("formhash=" + formhashMatch[1]);
-} else {
-    console.log("没有找到formhash");
-}
 
 const headers = {
     "Cookie": String(cookie),
@@ -42,27 +32,41 @@ $httpClient.get(
     function(error, response, body) {
 
         if (error) {
+
             $notification.post(
                 "sxsy13签到",
                 "请求失败",
                 error
             );
-        } else {
 
-            console.log(body);
+        } else {
 
             const formhashMatch = body.match(/['"]formhash['"]:\s*["']([^"']+)["']/);
 
             if (formhashMatch) {
-                console.log("formhash=" + formhashMatch[1]);
-            } else {
-                 console.log("没有找到formhash");
-            }
 
-            $notification.post(
-                "sxsy13签到",
-                "返回内容",
-                body
-            );
+                console.log("formhash=" + formhashMatch[1]);
+
+                $notification.post(
+                    "sxsy13签到",
+                    "找到formhash",
+                    formhashMatch[1]
+                );
+
+            } else {
+
+                console.log("没有找到formhash");
+
+                $notification.post(
+                    "sxsy13签到",
+                    "失败",
+                    "没有找到formhash"
+                );
+
+            }
         }
+
+        $done();
+
+    }
 );
