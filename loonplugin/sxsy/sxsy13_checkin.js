@@ -1,6 +1,6 @@
 /**
  * @name sxsy13 自动签到
- * @description sxsy13自动签到整理测试版
+ * @description sxsy13自动签到测试版
  */
 
 
@@ -16,6 +16,7 @@ if (!cookie) {
     );
 
     $done();
+    return;
 
 }
 
@@ -74,13 +75,11 @@ $httpClient.get(
 
         if (error1) {
 
-
             $notification.post(
                 "sxsy13签到",
                 "首页请求失败",
                 error1
             );
-
 
             $done();
             return;
@@ -96,13 +95,11 @@ $httpClient.get(
 
         if (!formhashMatch) {
 
-
             $notification.post(
                 "sxsy13签到",
                 "失败",
                 "没有找到formhash"
             );
-
 
             $done();
             return;
@@ -119,6 +116,7 @@ $httpClient.get(
         console.log(
             "formhash=" + formhash
         );
+
 
 
 
@@ -157,13 +155,11 @@ $httpClient.get(
 
                 if (error2) {
 
-
                     $notification.post(
                         "sxsy13签到",
                         "获取题目失败",
                         error2
                     );
-
 
                     $done();
                     return;
@@ -172,38 +168,58 @@ $httpClient.get(
 
 
 
-                // 调试响应头
-                console.log(
-                    JSON.stringify(response2.headers)
-                );
 
+                // ===============================
+                // 提取 mathv
+                // ===============================
 
 
                 let mathv = "";
 
 
 
-                if (response2.headers) {
+                let cookieHeaders =
+                response2.headers;
 
+
+
+                console.log(
+                    "响应头:"
+                    +
+                    JSON.stringify(cookieHeaders)
+                );
+
+
+
+                let setCookie =
+                cookieHeaders["set-cookie"]
+                ||
+                cookieHeaders["Set-Cookie"]
+                ||
+                "";
+
+
+
+                let mathvMatch =
+                String(setCookie).match(
+                    /(u52q_2132_k_misign_mathv=[^;, ]+)/
+                );
+
+
+
+                if (mathvMatch) {
 
                     mathv =
-                    response2.headers["set-cookie"]
-                    ||
-                    response2.headers["Set-Cookie"]
-                    ||
-                    response2.headers["cookie"]
-                    ||
-                    response2.headers["Cookie"]
-                    ||
-                    "";
-
+                    mathvMatch[1];
 
                 }
 
 
 
                 console.log(
-                    "mathv=" + mathv
+                    "mathv="
+                    +
+                    mathv
                 );
 
 
@@ -224,12 +240,12 @@ $httpClient.get(
                         "没有找到数学题"
                     );
 
+                    console.log(body2);
 
                     $done();
                     return;
 
                 }
-
 
 
 
@@ -252,7 +268,6 @@ $httpClient.get(
                         question
                     );
 
-
                     $done();
                     return;
 
@@ -260,12 +275,11 @@ $httpClient.get(
 
 
 
-
                 const num1 =
                 Number(mathMatch[1]);
 
 
-                const operator =
+                const op =
                 mathMatch[2];
 
 
@@ -278,7 +292,7 @@ $httpClient.get(
 
 
 
-                if (operator === "+") {
+                if (op === "+") {
 
                     answer =
                     num1 + num2;
@@ -301,6 +315,7 @@ $httpClient.get(
                     +
                     answer
                 );
+
 
 
 
@@ -346,9 +361,7 @@ $httpClient.get(
 
                     String(cookie)
                     +
-                    ";"
-                    +
-                    mathv
+                    (mathv ? ";" + mathv : "")
 
 
                 };
@@ -368,7 +381,6 @@ $httpClient.get(
                     function(error3, response3, body3) {
 
 
-
                         if (error3) {
 
 
@@ -383,7 +395,6 @@ $httpClient.get(
 
 
                             console.log(body3);
-
 
 
                             $notification.post(
