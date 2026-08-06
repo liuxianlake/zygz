@@ -87,6 +87,8 @@ $httpClient.get(
             },
             function(error2, response2, body2) {
 
+                console.log(JSON.stringify(response2.headers));
+
 
                 if (error2) {
 
