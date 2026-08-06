@@ -18,6 +18,14 @@ if (!cookie) {
 
 const url = "https://sxsy13.com/index.php?mobile=2";
 
+const formhashMatch = body.match(/['"]formhash['"]:\s*["']([^"']+)["']/);
+
+if (formhashMatch) {
+    console.log("formhash=" + formhashMatch[1]);
+} else {
+    console.log("没有找到formhash");
+}
+
 const headers = {
     "Cookie": String(cookie),
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
@@ -43,13 +51,18 @@ $httpClient.get(
 
             console.log(body);
 
+            const formhashMatch = body.match(/['"]formhash['"]:\s*["']([^"']+)["']/);
+
+            if (formhashMatch) {
+                console.log("formhash=" + formhashMatch[1]);
+            } else {
+                 console.log("没有找到formhash");
+            }
+
             $notification.post(
                 "sxsy13签到",
                 "返回内容",
                 body
             );
         }
-
-        $done();
-    }
 );
