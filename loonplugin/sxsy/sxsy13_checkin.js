@@ -16,7 +16,7 @@ if (!cookie) {
     $done();
 }
 
-const url = "https://sxsy13.com/plugin.php?id=k_misign%3Asign&operation=qiandao&format=text&formhash=b3e3f9b1";
+const url = "https://sxsy13.com/index.php?mobile=2";
 
 const headers = {
     "Cookie": String(cookie),
