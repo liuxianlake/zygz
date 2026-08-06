@@ -1,6 +1,6 @@
 /**
- * @name sxsy13 自动签到测试版
- * @description sxsy13自动签到
+ * @name sxsy13 自动签到
+ * @description sxsy13自动签到测试
  */
 
 const cookie = $persistentStore.read("sxsy13_cookie");
@@ -15,8 +15,7 @@ if (!cookie) {
 }
 
 
-const headers = {
-    "Cookie": String(cookie),
+const baseHeaders = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
     "Referer": "https://sxsy13.com/index.php?mobile=2",
     "Accept": "*/*",
@@ -24,7 +23,13 @@ const headers = {
 };
 
 
-// 获取首页formhash
+const loginHeaders = {
+    ...baseHeaders,
+    "Cookie": String(cookie)
+};
+
+
+// 第一步：获取首页formhash
 
 const homeUrl = "https://sxsy13.com/index.php?mobile=2";
 
@@ -32,17 +37,19 @@ const homeUrl = "https://sxsy13.com/index.php?mobile=2";
 $httpClient.get(
     {
         url: homeUrl,
-        headers: headers
+        headers: loginHeaders
     },
     function(error, response, body) {
 
 
         if (error) {
+
             $notification.post(
                 "sxsy13签到",
-                "首页失败",
+                "首页请求失败",
                 error
             );
+
             $done();
             return;
         }
@@ -68,14 +75,17 @@ $httpClient.get(
         const formhash = formhashMatch[1];
 
 
+        console.log("formhash=" + formhash);
 
-        // 获取数学题
+
+
+        // 第二步：获取数学题
 
         const questionUrl =
             "https://sxsy13.com/plugin.php?id=k_misign:sign"
-            +"&operation=qiandao"
-            +"&format=text"
-            +"&formhash="
+            + "&operation=qiandao"
+            + "&format=text"
+            + "&formhash="
             + formhash;
 
 
@@ -83,11 +93,9 @@ $httpClient.get(
         $httpClient.get(
             {
                 url: questionUrl,
-                headers: headers
+                headers: loginHeaders
             },
             function(error2, response2, body2) {
-
-                console.log(JSON.stringify(response2.headers));
 
 
                 if (error2) {
@@ -100,8 +108,28 @@ $httpClient.get(
 
                     $done();
                     return;
+                }
+
+
+
+                // 获取数学验证Cookie
+
+                let mathv = "";
+
+
+                if (response2.headers) {
+
+                    mathv =
+                        response2.headers["cookie"]
+                        ||
+                        response2.headers["Cookie"]
+                        ||
+                        "";
 
                 }
+
+
+                console.log("mathv=" + mathv);
 
 
 
@@ -118,14 +146,16 @@ $httpClient.get(
                         "没有找到题目"
                     );
 
+                    console.log(body2);
+
                     $done();
                     return;
-
                 }
 
 
 
                 const question = questionMatch[1];
+
 
 
                 const mathMatch =
@@ -143,7 +173,6 @@ $httpClient.get(
 
                     $done();
                     return;
-
                 }
 
 
@@ -157,39 +186,58 @@ $httpClient.get(
 
 
                 if (op === "+") {
+
                     answer = num1 + num2;
+
                 } else {
+
                     answer = num1 - num2;
+
                 }
 
 
 
                 console.log(
-                    "题目:" + question +
-                    " 答案:" + answer
+                    "题目：" + question +
+                    " 答案：" + answer
                 );
 
 
 
-                // 提交签到
+                // 第三步：提交答案
 
                 const submitUrl =
                     "https://sxsy13.com/plugin.php?id=k_misign:sign"
-                    +"&operation=qiandao"
-                    +"&format=global_usernav_extra"
-                    +"&formhash="
+                    + "&operation=qiandao"
+                    + "&format=global_usernav_extra"
+                    + "&formhash="
                     + formhash
-                    +"&mathverify_answer="
+                    + "&mathverify_answer="
                     + encodeURIComponent(answer)
-                    +"&inajax=1"
-                    +"&ajaxtarget=k_misign_mv_tmp";
+                    + "&inajax=1"
+                    + "&ajaxtarget=k_misign_mv_tmp";
+
+
+
+                const submitHeaders = {
+
+                    ...baseHeaders,
+
+                    "Cookie":
+                        String(cookie)
+                        +
+                        ";"
+                        +
+                        mathv
+
+                };
 
 
 
                 $httpClient.get(
                     {
                         url: submitUrl,
-                        headers: headers
+                        headers: submitHeaders
                     },
                     function(error3, response3, body3) {
 
