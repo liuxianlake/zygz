@@ -19,11 +19,11 @@ if (!cookie) {
 const url = "https://sxsy13.com/plugin.php?id=k_misign%3Asign&operation=qiandao&format=text&formhash=b3e3f9b1";
 
 const headers = {
-    "Cookie": cookie,
-    "User-Agent": "Mozilla/5.0",
+    "Cookie": String(cookie),
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
+    "Referer": "https://sxsy13.com/index.php?mobile=2",
     "Accept": "*/*",
-    "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-    "Referer": "https://sxsy13.com/index.php?mobile=2"
+    "Accept-Language": "zh-CN,zh-Hans;q=0.9"
 };
 
 $httpClient.get(
