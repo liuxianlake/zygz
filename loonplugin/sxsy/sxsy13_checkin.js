@@ -36,15 +36,15 @@ const homeUrl = "https://sxsy13.com/index.php?mobile=2";
 
 $httpClient.get(
     {
-        url: homeUrl,
+        url: questionUrl,
         headers: loginHeaders
     },
-    function(error, response, body) {
-        
+    function(error2, response2, body2) {
+
         console.log(JSON.stringify(response2.headers));
 
 
-        if (error) {
+        if (error2) {
 
             $notification.post(
                 "sxsy13签到",
