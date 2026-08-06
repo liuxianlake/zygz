@@ -16,7 +16,7 @@ if (!cookie) {
     $done();
 }
 
-const url = "https://sxsy13.com/index.php?mobile=2";
+const url = "https://sxsy13.com/plugin.php?id=k_misign:sign";
 
 const headers = {
     "Cookie": String(cookie),
