@@ -40,6 +40,8 @@ $httpClient.get(
         headers: loginHeaders
     },
     function(error, response, body) {
+        
+        console.log(JSON.stringify(response2.headers));
 
 
         if (error) {
