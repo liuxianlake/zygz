@@ -267,12 +267,13 @@ $httpClient.get(
 
                             if (
                                 result.includes("已签") ||
-                                result.includes("成功")
+                                result.includes("成功") ||
+                                result.includes("今日")
                             ) {
 
                                 $notification.post(
                                     "sxsy13签到",
-                                    "成功",
+                                    "签到成功",
                                     result
                                 );
 
@@ -280,7 +281,7 @@ $httpClient.get(
 
                                 $notification.post(
                                     "sxsy13签到",
-                                    "结果",
+                                    "签到失败",
                                     result
                                 );
 
