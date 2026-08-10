@@ -101,7 +101,7 @@ $httpClient.get(
 
                 if (error2) {
                     $notification.post(
-                        "sxsy13签到",
+                        "sxsy签到",
                         "获取题目失败",
                         error2
                     );
@@ -142,7 +142,7 @@ $httpClient.get(
                 if (!questionMatch) {
 
                     $notification.post(
-                        "sxsy13签到",
+                        "sxsy签到",
                         "失败",
                         "没有找到数学题"
                     );
@@ -166,7 +166,7 @@ $httpClient.get(
                 if (!mathMatch) {
 
                     $notification.post(
-                        "sxsy13签到",
+                        "sxsy签到",
                         "失败",
                         question
                     );
@@ -237,7 +237,7 @@ $httpClient.get(
                         if (error3) {
 
                             $notification.post(
-                                "sxsy13签到",
+                                "sxsy签到",
                                 "提交失败",
                                 error3
                             );
@@ -272,7 +272,7 @@ $httpClient.get(
                             ) {
 
                                 $notification.post(
-                                    "sxsy13签到",
+                                    "sxsy签到",
                                     "签到成功",
                                     result
                                 );
@@ -280,7 +280,7 @@ $httpClient.get(
                             } else {
 
                                 $notification.post(
-                                    "sxsy13签到",
+                                    "sxsy签到",
                                     "签到失败",
                                     result
                                 );
