@@ -5,7 +5,7 @@ DOMAIN-SUFFIX,nodeseek.com
 DOMAIN-SUFFIX,missav.ws
 
 # ================= 尚香书院 =================
-DOMAIN-SUFFIX,sxsy13.com
+URL-REGEX, ^https?:\/\/sxsy\d+\.com
 
 # ================= 苹果空气质量 =================
 DOMAIN-SUFFIX,weatherkit.apple.com
