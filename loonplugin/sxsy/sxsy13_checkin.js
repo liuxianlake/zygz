@@ -1,13 +1,13 @@
 /**
  * @name 尚香书院 自动签到
- * @description sxsy13自动签到整理版
+ * @description sxsy自动签到整理版
  */
 
 const cookie = $persistentStore.read("sxsy13_cookie");
 
 if (!cookie) {
     $notification.post(
-        "sxsy13签到",
+        "sxsy签到",
         "缺少Cookie",
         "请先配置sxsy13_cookie"
     );
@@ -21,7 +21,7 @@ const baseHeaders = {
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
 
     "Referer":
-    "https://sxsy13.com/index.php?mobile=2",
+    "https://sxsy45.com/index.php?mobile=2",
 
     "Accept":
     "*/*",
@@ -40,7 +40,7 @@ const loginHeaders = {
 // 获取首页 formhash
 
 const homeUrl =
-"https://sxsy13.com/index.php?mobile=2";
+"https://sxsy45.com/index.php?mobile=2";
 
 
 $httpClient.get(
@@ -53,7 +53,7 @@ $httpClient.get(
 
         if (error1) {
             $notification.post(
-                "sxsy13签到",
+                "sxsy签到",
                 "首页请求失败",
                 error1
             );
@@ -68,7 +68,7 @@ $httpClient.get(
 
         if (!formhashMatch) {
             $notification.post(
-                "sxsy13签到",
+                "sxsy签到",
                 "失败",
                 "没有找到formhash"
             );
@@ -83,7 +83,7 @@ $httpClient.get(
         // 获取数学题
 
         const questionUrl =
-        "https://sxsy13.com/plugin.php?id=k_misign:sign" +
+        "https://sxsy45.com/plugin.php?id=k_misign:sign" +
         "&operation=qiandao" +
         "&format=text" +
         "&formhash=" +
@@ -201,7 +201,7 @@ $httpClient.get(
                 // 提交签到
 
                 const submitUrl =
-                "https://sxsy13.com/plugin.php?id=k_misign:sign" +
+                "https://sxsy45.com/plugin.php?id=k_misign:sign" +
                 "&operation=qiandao" +
                 "&format=global_usernav_extra" +
                 "&formhash=" +
