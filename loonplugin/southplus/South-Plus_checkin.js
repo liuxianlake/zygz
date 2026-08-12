@@ -1,6 +1,6 @@
 /**
  * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 V2
+ * @description South-Plus每日任务自动签到 V3
  */
 
 
@@ -32,29 +32,35 @@ const verify = "38dc1030";
 
 
 
-const headers = {
-
-    "Cookie": cookie,
-
-    "User-Agent":
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1",
-
-    "Referer":
-    "https://www.south-plus.net/plugin.php?H_name-tasks.html.html",
-
-    "Accept":
-    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-    "Accept-Language":
-    "zh-CN,zh-Hans;q=0.9"
-
-};
+const userAgent =
+"Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1";
 
 
 
-/*
-更新服务器返回的新 Cookie
-*/
+function getHeaders() {
+
+    return {
+
+        "Cookie": cookie,
+
+        "User-Agent": userAgent,
+
+        "Referer":
+        "https://www.south-plus.net/plugin.php?H_name-tasks.html.html",
+
+        "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+
+        "Accept-Language":
+        "zh-CN,zh-Hans;q=0.9"
+
+    };
+
+}
+
+
+
+
 
 function updateCookie(responseHeaders) {
 
@@ -67,11 +73,13 @@ function updateCookie(responseHeaders) {
         responseHeaders["set-cookie"];
 
 
+
     if (!setCookie) return;
 
 
 
     let list = [];
+
 
 
     if (Array.isArray(setCookie)) {
@@ -86,6 +94,7 @@ function updateCookie(responseHeaders) {
         });
 
 
+
     } else {
 
 
@@ -95,6 +104,7 @@ function updateCookie(responseHeaders) {
 
 
     }
+
 
 
 
@@ -109,6 +119,7 @@ function updateCookie(responseHeaders) {
             item.trim().split("=");
 
 
+
         if (pair.length >= 2) {
 
 
@@ -120,6 +131,8 @@ function updateCookie(responseHeaders) {
 
 
     });
+
+
 
 
 
@@ -130,6 +143,7 @@ function updateCookie(responseHeaders) {
             item.split("=");
 
 
+
         if (pair.length >= 2) {
 
 
@@ -144,13 +158,19 @@ function updateCookie(responseHeaders) {
 
 
 
-    cookie =
-        Object.keys(cookieObj)
+
+
+
+    cookie = Object.keys(cookieObj)
+
         .map(
             key =>
             `${key}=${cookieObj[key]}`
         )
+
         .join("; ");
+
+
 
 
 
@@ -161,6 +181,8 @@ function updateCookie(responseHeaders) {
 
 
 }
+
+
 
 
 
@@ -178,10 +200,9 @@ function get(url) {
 
                 url: url,
 
-                headers: headers
+                headers: getHeaders()
 
             },
-
 
             (error, response, body) => {
 
@@ -204,18 +225,15 @@ function get(url) {
 
                     resolve("");
 
-
                 } else {
 
 
                     resolve(body);
 
-
                 }
 
 
             }
-
 
         );
 
@@ -229,13 +247,13 @@ function get(url) {
 
 
 
+
+
 (async () => {
 
 
 
-    /*
-    1. 社区论坛任务
-    */
+    // 1. 社区论坛任务
 
     await get(
         `${plugin}?H_name-tasks.html`
@@ -243,9 +261,9 @@ function get(url) {
 
 
 
-    /*
-    2. 新任务选择
-    */
+
+
+    // 2. 新任务选择
 
     await get(
         `${plugin}?H_name-tasks.html.html`
@@ -253,9 +271,11 @@ function get(url) {
 
 
 
-    /*
-    3. 领取日常任务
-    */
+
+
+
+    // 3. 领取日常任务
+
 
     const jobUrl =
 
@@ -268,9 +288,11 @@ function get(url) {
 
 
 
-    /*
-    4. 进入进行中的任务
-    */
+
+
+
+    // 4. 进入进行中的任务
+
 
     await get(
         `${plugin}?H_name-tasks-actions-newtasks.html.html`
@@ -278,9 +300,12 @@ function get(url) {
 
 
 
-    /*
-    5. 完成任务领取奖励
-    */
+
+
+
+
+    // 5. 完成任务
+
 
     const job2Url =
 
@@ -290,6 +315,9 @@ function get(url) {
 
     const job2Result =
         await get(job2Url);
+
+
+
 
 
 
@@ -306,7 +334,11 @@ function get(url) {
 
 
 
+
+
     console.log(result);
+
+
 
 
 
@@ -319,6 +351,8 @@ function get(url) {
         result
 
     );
+
+
 
 
 
