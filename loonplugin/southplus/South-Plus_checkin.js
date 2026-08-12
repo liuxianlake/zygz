@@ -23,67 +23,69 @@ const verify = "38dc1030";
 
 
 const userAgent =
-"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1";
+"Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1";
 
 
 function updateCookie(headers) {
 
     if (!headers) return;
 
-    let setCookie = headers["Set-Cookie"] || headers["set-cookie"];
+    let setCookie =
+        headers["Set-Cookie"] ||
+        headers["set-cookie"];
+
 
     if (!setCookie) return;
 
 
-    let newCookies = [];
+    let list = [];
 
     if (Array.isArray(setCookie)) {
 
         setCookie.forEach(item => {
-            newCookies.push(
-                item.split(";")[0]
-            );
+            list.push(item.split(";")[0]);
         });
 
     } else {
 
-        newCookies.push(
-            setCookie.split(";")[0]
-        );
+        list.push(setCookie.split(";")[0]);
 
     }
 
 
-    let oldCookies = {};
+    let cookies = {};
+
 
     cookie.split(";").forEach(item => {
 
-        let part = item.trim().split("=");
+        let pair = item.trim().split("=");
 
-        if (part.length >= 2) {
-            oldCookies[part[0]] =
-                part.slice(1).join("=");
-        }
+        if (pair.length >= 2) {
 
-    });
-
-
-    newCookies.forEach(item => {
-
-        let part = item.split("=");
-
-        if (part.length >= 2) {
-
-            oldCookies[part[0]] =
-                part.slice(1).join("=");
+            cookies[pair[0]] =
+                pair.slice(1).join("=");
 
         }
 
     });
 
 
-    cookie = Object.keys(oldCookies)
-        .map(key => `${key}=${oldCookies[key]}`)
+    list.forEach(item => {
+
+        let pair = item.split("=");
+
+        if (pair.length >= 2) {
+
+            cookies[pair[0]] =
+                pair.slice(1).join("=");
+
+        }
+
+    });
+
+
+    cookie = Object.keys(cookies)
+        .map(key => `${key}=${cookies[key]}`)
         .join("; ");
 
 
@@ -103,6 +105,7 @@ function get(url) {
         $httpClient.get(
             {
                 url: url,
+
                 headers: {
 
                     "Cookie": cookie,
@@ -113,9 +116,22 @@ function get(url) {
                     "https://www.south-plus.net/plugin.php?H_name-tasks.html.html",
 
                     "Accept":
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+
+                    "Accept-Language":
+                    "zh-CN,zh-Hans;q=0.9",
+
+                    "Sec-Fetch-Dest":
+                    "iframe",
+
+                    "Sec-Fetch-Mode":
+                    "navigate",
+
+                    "Sec-Fetch-Site":
+                    "same-origin"
 
                 }
+
             },
 
             (error, response, body) => {
@@ -152,12 +168,11 @@ function get(url) {
 (async () => {
 
 
-    // 进入任务中心
+    // 社区论坛任务
 
     await get(
         `${plugin}?H_name-tasks.html`
     );
-
 
 
     // 新任务选择
@@ -167,14 +182,14 @@ function get(url) {
     );
 
 
-
     // 领取日常任务
 
     const jobUrl =
     `${plugin}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
 
-    const jobResult = await get(jobUrl);
+    const jobResult =
+        await get(jobUrl);
 
 
 
@@ -192,16 +207,16 @@ function get(url) {
     `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
 
-    const job2Result = await get(job2Url);
+    const job2Result =
+        await get(job2Url);
 
 
 
     const result =
-    "领取任务:\n" +
-    jobResult +
-    "\n\n完成任务:\n" +
-    job2Result;
-
+        "领取任务:\n" +
+        jobResult +
+        "\n\n完成任务:\n" +
+        job2Result;
 
 
     console.log(result);
