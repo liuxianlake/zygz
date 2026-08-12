@@ -1,6 +1,6 @@
 /**
  * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 V3
+ * @description South-Plus每日任务自动签到 V4
  */
 
 
@@ -37,6 +37,8 @@ const userAgent =
 
 
 
+
+
 function getHeaders() {
 
     return {
@@ -62,133 +64,6 @@ function getHeaders() {
 
 
 
-function updateCookie(responseHeaders) {
-
-
-    if (!responseHeaders) return;
-
-
-    let setCookie =
-        responseHeaders["Set-Cookie"] ||
-        responseHeaders["set-cookie"];
-
-
-
-    if (!setCookie) return;
-
-
-
-    let list = [];
-
-
-
-    if (Array.isArray(setCookie)) {
-
-
-        setCookie.forEach(item => {
-
-            list.push(
-                item.split(";")[0]
-            );
-
-        });
-
-
-
-    } else {
-
-
-        list.push(
-            setCookie.split(";")[0]
-        );
-
-
-    }
-
-
-
-
-    let cookieObj = {};
-
-
-
-    cookie.split(";").forEach(item => {
-
-
-        let pair =
-            item.trim().split("=");
-
-
-
-        if (pair.length >= 2) {
-
-
-            cookieObj[pair[0]] =
-                pair.slice(1).join("=");
-
-
-        }
-
-
-    });
-
-
-
-
-
-    list.forEach(item => {
-
-
-        let pair =
-            item.split("=");
-
-
-
-        if (pair.length >= 2) {
-
-
-            cookieObj[pair[0]] =
-                pair.slice(1).join("=");
-
-
-        }
-
-
-    });
-
-
-
-
-
-
-    cookie = Object.keys(cookieObj)
-
-        .map(
-            key =>
-            `${key}=${cookieObj[key]}`
-        )
-
-        .join("; ");
-
-
-
-
-
-    $persistentStore.write(
-        cookie,
-        "south_cookie"
-    );
-    
-    console.log("更新后的Cookie:");
-    console.log(cookie);
-
-}
-
-
-
-
-
-
 function get(url) {
 
 
@@ -202,33 +77,22 @@ function get(url) {
 
                 url: url,
 
-                headers: getHeaders()
+                headers: getHeaders(),
+
+                "auto-cookie": false
 
             },
 
+
             (error, response, body) => {
-
-                console.log(JSON.stringify(response.headers));
-
-                if (response && response.headers) {
-
-
-                    updateCookie(
-                        response.headers
-                    );
-
-
-                }
 
 
 
                 if (error) {
 
-
                     resolve("");
 
                 } else {
-
 
                     resolve(body);
 
@@ -236,6 +100,7 @@ function get(url) {
 
 
             }
+
 
         );
 
@@ -250,12 +115,13 @@ function get(url) {
 
 
 
-
 (async () => {
 
 
 
-    // 1. 社区论坛任务
+    /*
+    1. 社区论坛任务
+    */
 
     await get(
         `${plugin}?H_name-tasks.html`
@@ -265,7 +131,9 @@ function get(url) {
 
 
 
-    // 2. 新任务选择
+    /*
+    2. 新任务选择
+    */
 
     await get(
         `${plugin}?H_name-tasks.html.html`
@@ -276,7 +144,9 @@ function get(url) {
 
 
 
-    // 3. 领取日常任务
+    /*
+    3. 领取日常任务
+    */
 
 
     const jobUrl =
@@ -293,8 +163,10 @@ function get(url) {
 
 
 
-    // 4. 进入进行中的任务
 
+    /*
+    4. 进入进行中的任务
+    */
 
     await get(
         `${plugin}?H_name-tasks-actions-newtasks.html.html`
@@ -306,7 +178,10 @@ function get(url) {
 
 
 
-    // 5. 完成任务
+
+    /*
+    5. 完成任务
+    */
 
 
     const job2Url =
@@ -317,6 +192,7 @@ function get(url) {
 
     const job2Result =
         await get(job2Url);
+
 
 
 
@@ -338,7 +214,10 @@ function get(url) {
 
 
 
+
+
     console.log(result);
+
 
 
 
@@ -353,6 +232,7 @@ function get(url) {
         result
 
     );
+
 
 
 
