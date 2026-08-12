@@ -9,3 +9,6 @@ URL-REGEX, ^https?:\/\/sxsy\d+\.com
 
 # ================= 苹果空气质量 =================
 DOMAIN-SUFFIX,weatherkit.apple.com
+
+# ================= 南+ =================
+DOMAIN-SUFFIX,south-plus.net
