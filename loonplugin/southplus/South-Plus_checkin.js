@@ -178,7 +178,9 @@ function updateCookie(responseHeaders) {
         cookie,
         "south_cookie"
     );
-
+    
+    console.log("更新后的Cookie:");
+    console.log(cookie);
 
 }
 
