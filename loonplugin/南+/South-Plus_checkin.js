@@ -1,13 +1,10 @@
-/**
- * South-Plus 日常任务签到 V1
- * 
- * 流程：
- * 读取Cookie
- * ↓
- * 领取日常任务(job)
- * ↓
- * 完成任务(job2)
- */
+/*
+[Script]
+name = South-Plus日常任务签到
+type = cron
+cron = 0 8 * * *
+timeout = 30
+*/
 
 const cookie = $persistentStore.read("south_cookie");
 
@@ -23,8 +20,6 @@ if (!cookie) {
 const host = "https://www.south-plus.net/plugin.php";
 
 const cid = "15";
-
-// 暂时沿用抓包中的 verify
 const verify = "38dc1030";
 
 
@@ -35,8 +30,7 @@ function request(url) {
                 url: url,
                 headers: {
                     "Cookie": cookie,
-                    "User-Agent":
-                    "Mozilla/5.0"
+                    "User-Agent": "Mozilla/5.0"
                 }
             },
             (error, response, body) => {
@@ -53,40 +47,34 @@ function request(url) {
 
 (async () => {
 
-    const now1 = Date.now();
-
     // 领取任务
     const jobUrl =
-    `${host}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${now1}&verify=${verify}`;
+        `${host}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
     const jobResult = await request(jobUrl);
 
 
     // 完成任务
-    const now2 = Date.now();
-
     const job2Url =
-    `${host}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${now2}&verify=${verify}`;
-
+        `${host}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
     const job2Result = await request(job2Url);
 
 
-    let msg =
-    "领取:\n" +
-    jobResult +
-    "\n\n完成:\n" +
-    job2Result;
+    const result =
+        "领取任务:\n" +
+        jobResult +
+        "\n\n完成任务:\n" +
+        job2Result;
 
+
+    console.log(result);
 
     $notification.post(
         "South-Plus签到",
         "执行结果",
-        msg
+        result
     );
-
-
-    console.log(msg);
 
     $done();
 
