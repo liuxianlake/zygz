@@ -1,12 +1,7 @@
 /**
- * @name southplus 自动签到
- * @description southplus自动签到稳定版
+ * @name South-Plus日常任务签到
+ * @description South-Plus每日任务自动签到
  */
-
-
-
-
-const host = "https://www.south-plus.net";
 
 const cookie = $persistentStore.read("south_cookie");
 
