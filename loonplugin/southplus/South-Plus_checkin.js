@@ -5,8 +5,6 @@
 
 const cookie = $persistentStore.read("south_cookie");
 
-console.log(cookie);
-
 if (!cookie) {
     $notification.post(
         "South-Plus签到",
@@ -16,48 +14,80 @@ if (!cookie) {
     $done();
 }
 
-const host = "https://www.south-plus.net/plugin.php";
+
+const base = "https://www.south-plus.net";
+
+const plugin = `${base}/plugin.php`;
 
 const cid = "15";
+
 const verify = "38dc1030";
 
 
-function request(url) {
+const headers = {
+    "Cookie": cookie,
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+    "Referer": "https://www.south-plus.net/plugin.php?H_name-tasks.html"
+};
+
+
+function get(url) {
+
     return new Promise((resolve) => {
+
         $httpClient.get(
             {
                 url: url,
-                headers: {
-                    "Cookie": cookie,
-                    "User-Agent": "Mozilla/5.0"
-                }
+                headers: headers
             },
             (error, response, body) => {
+
                 if (error) {
                     resolve("");
                 } else {
                     resolve(body);
                 }
+
             }
         );
+
     });
+
 }
 
 
 (async () => {
 
+
+    // 进入任务中心
+    await get(
+        `${plugin}?H_name-tasks.html`
+    );
+
+
     // 领取日常任务
     const jobUrl =
-        `${host}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
-
-    const jobResult = await request(jobUrl);
+        `${plugin}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
 
-    // 完成日常任务
+    const jobResult = await get(jobUrl);
+
+
+
+    // 进入进行中的任务页面
+    await get(
+        `${plugin}?H_name-tasks-actions-newtasks.html.html`
+    );
+
+
+
+    // 完成任务领取奖励
     const job2Url =
-        `${host}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
+        `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
-    const job2Result = await request(job2Url);
+
+    const job2Result = await get(job2Url);
+
 
 
     const result =
@@ -67,7 +97,9 @@ function request(url) {
         job2Result;
 
 
+
     console.log(result);
+
 
     $notification.post(
         "South-Plus签到",
@@ -75,6 +107,8 @@ function request(url) {
         result
     );
 
+
     $done();
+
 
 })();
