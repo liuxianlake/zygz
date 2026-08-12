@@ -44,14 +44,14 @@ function request(url) {
 
 (async () => {
 
-    // 领取任务
+    // 领取日常任务
     const jobUrl =
         `${host}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
     const jobResult = await request(jobUrl);
 
 
-    // 完成任务
+    // 完成日常任务
     const job2Url =
         `${host}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
