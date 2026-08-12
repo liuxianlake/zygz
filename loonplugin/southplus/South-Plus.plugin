@@ -1,1 +1,7 @@
+#!name=South-Plus签到
+#!desc=South-Plus每日任务自动签到
+#!author=liuxianlake
 
+[Script]
+
+cron "30 7 * * *" script-path=https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/southplus/South-Plus_checkin.js,tag=South-Plus签到,timeout=30
