@@ -4,6 +4,7 @@
  */
 
 const cookie = $persistentStore.read("south_cookie");
+console.log(cookie);
 
 if (!cookie) {
     $notification.post(
