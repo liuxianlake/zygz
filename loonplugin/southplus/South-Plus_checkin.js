@@ -1,10 +1,12 @@
-/*
-[Script]
-name = South-Plus日常任务签到
-type = cron
-cron = 0 8 * * *
-timeout = 30
-*/
+/**
+ * @name southplus 自动签到
+ * @description southplus自动签到稳定版
+ */
+
+
+
+
+const host = "https://www.south-plus.net";
 
 const cookie = $persistentStore.read("south_cookie");
 
