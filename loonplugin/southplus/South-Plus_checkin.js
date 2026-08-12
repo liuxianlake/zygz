@@ -85,6 +85,12 @@ function get(url) {
     const job2Url =
         `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
+    const test = await get(
+    "https://www.south-plus.net/plugin.php?H_name-tasks.html"
+);
+
+console.log(test);
+
 
     const job2Result = await get(job2Url);
 
