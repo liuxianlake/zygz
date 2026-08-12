@@ -181,6 +181,8 @@ function get(url) {
         `${plugin}?H_name-tasks.html.html`
     );
 
+    console.log("当前Cookie:");
+    console.log(cookie);
 
     // 领取日常任务
 
