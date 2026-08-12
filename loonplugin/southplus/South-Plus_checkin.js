@@ -208,7 +208,7 @@ function get(url) {
 
             (error, response, body) => {
 
-
+                console.log(JSON.stringify(response.headers));
 
                 if (response && response.headers) {
 
