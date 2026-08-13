@@ -1,6 +1,6 @@
 /**
  * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 V5
+ * @description South-Plus每日任务自动签到 V6
  */
 
 
@@ -70,7 +70,6 @@ function get(url) {
     return new Promise(resolve => {
 
 
-
         $httpClient.get(
 
             {
@@ -85,7 +84,6 @@ function get(url) {
 
 
             (error, response, body) => {
-
 
 
                 if (error) {
@@ -103,7 +101,6 @@ function get(url) {
 
 
         );
-
 
 
     });
@@ -140,7 +137,8 @@ function get(url) {
 
 
 
-    // 3. 领取日常任务
+
+    // 3. 领取任务
 
 
     const jobUrl =
@@ -158,46 +156,33 @@ function get(url) {
 
 
 
-    // 4. 进入进行中的任务
-
-    await get(
-        `${plugin}?H_name-tasks-actions-newtasks.html.html`
-    );
+    let finalMessage = "";
 
 
 
 
 
 
+    /*
+       判断是否领取成功
+    */
 
 
-    // 5. 完成任务
+    if (
 
+        jobResult.includes("success") &&
 
-    const job2Url =
+        jobResult.includes("完成")
 
-    `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
-
-
-
-    const job2Result =
-        await get(job2Url);
-
-
+    ) {
 
 
 
+        // 4. 进入进行中的任务
 
-
-    const result =
-
-    "领取任务:\n" +
-
-    jobResult +
-
-    "\n\n完成任务:\n" +
-
-    job2Result;
+        await get(
+            `${plugin}?H_name-tasks-actions-newtasks.html.html`
+        );
 
 
 
@@ -205,8 +190,54 @@ function get(url) {
 
 
 
-    console.log(result);
+        // 5. 完成任务
 
+
+        const job2Url =
+
+        `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
+
+
+
+        const job2Result =
+            await get(job2Url);
+
+
+
+
+
+        finalMessage =
+
+        "领取任务:\n" +
+
+        jobResult +
+
+        "\n\n完成任务:\n" +
+
+        job2Result;
+
+
+
+    } else {
+
+
+
+        finalMessage =
+
+        "今日无需签到:\n\n" +
+
+        jobResult;
+
+
+
+    }
+
+
+
+
+
+
+    console.log(finalMessage);
 
 
 
@@ -218,7 +249,7 @@ function get(url) {
 
         "执行结果",
 
-        result
+        finalMessage
 
     );
 
