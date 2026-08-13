@@ -1,6 +1,6 @@
 /**
  * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 V6
+ * @description South-Plus每日任务自动签到 V7
  */
 
 
@@ -112,6 +112,39 @@ function get(url) {
 
 
 
+
+// 清理服务器返回的 XML
+
+function cleanResponse(text) {
+
+
+    if (!text) return "";
+
+
+    let match = text.match(
+        /<!\[CDATA\[(.*?)\]\]>/
+    );
+
+
+    if (match) {
+
+        return match[1];
+
+    }
+
+
+    return text
+        .replace(/<[^>]+>/g, "")
+        .trim();
+
+
+}
+
+
+
+
+
+
 (async () => {
 
 
@@ -149,7 +182,6 @@ function get(url) {
 
     const jobResult =
         await get(jobUrl);
-
 
 
 
@@ -210,11 +242,11 @@ function get(url) {
 
         "领取任务:\n" +
 
-        jobResult +
+        cleanResponse(jobResult) +
 
         "\n\n完成任务:\n" +
 
-        job2Result;
+        cleanResponse(job2Result);
 
 
 
@@ -226,7 +258,7 @@ function get(url) {
 
         "今日无需签到:\n\n" +
 
-        jobResult;
+        cleanResponse(jobResult);
 
 
 
