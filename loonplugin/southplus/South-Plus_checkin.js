@@ -1,6 +1,6 @@
 /**
  * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 V7
+ * @description South-Plus每日任务自动签到 
  */
 
 
@@ -12,7 +12,7 @@ if (!cookie) {
     $notification.post(
         "South-Plus签到",
         "失败",
-        "未找到 south_cookie"
+        "未找到south_cookie"
     );
 
     $done();
@@ -113,8 +113,6 @@ function get(url) {
 
 
 
-// 清理服务器返回的 XML
-
 function cleanResponse(text) {
 
 
@@ -170,7 +168,6 @@ function cleanResponse(text) {
 
 
 
-
     // 3. 领取任务
 
 
@@ -188,16 +185,13 @@ function cleanResponse(text) {
 
 
 
-    let finalMessage = "";
+    let notificationMessage = "";
+
+    let logMessage = "";
 
 
 
 
-
-
-    /*
-       判断是否领取成功
-    */
 
 
     if (
@@ -221,7 +215,6 @@ function cleanResponse(text) {
 
 
 
-
         // 5. 完成任务
 
 
@@ -238,15 +231,55 @@ function cleanResponse(text) {
 
 
 
-        finalMessage =
+
+        const cleanJob =
+            cleanResponse(jobResult);
+
+
+        const cleanJob2 =
+            cleanResponse(job2Result);
+
+
+
+
+
+
+        logMessage =
 
         "领取任务:\n" +
 
-        cleanResponse(jobResult) +
+        cleanJob +
 
         "\n\n完成任务:\n" +
 
-        cleanResponse(job2Result);
+        cleanJob2;
+
+
+
+
+
+
+        if (
+
+            cleanJob2.includes("已经完成")
+
+        ) {
+
+
+            notificationMessage =
+            "日常任务完成";
+
+
+        } else {
+
+
+            notificationMessage =
+            "任务执行异常";
+
+
+        }
+
+
 
 
 
@@ -254,12 +287,55 @@ function cleanResponse(text) {
 
 
 
-        finalMessage =
+        const cleanJob =
+            cleanResponse(jobResult);
 
-        "今日无需签到:\n\n" +
 
-        cleanResponse(jobResult);
 
+
+        logMessage =
+
+        "领取任务:\n" +
+
+        cleanJob;
+
+
+
+
+
+
+        if (
+
+            cleanJob.includes("还没超过") ||
+
+            cleanJob.includes("距离上次")
+
+        ) {
+
+
+            notificationMessage =
+            "今日已签到";
+
+
+        } else if (
+
+            cleanJob.includes("您还没有登录")
+
+        ) {
+
+
+            notificationMessage =
+            "Cookie失效，请重新登录";
+
+
+        } else {
+
+
+            notificationMessage =
+            "签到状态异常";
+
+
+        }
 
 
     }
@@ -269,7 +345,8 @@ function cleanResponse(text) {
 
 
 
-    console.log(finalMessage);
+    console.log(logMessage);
+
 
 
 
@@ -279,9 +356,9 @@ function cleanResponse(text) {
 
         "South-Plus签到",
 
-        "执行结果",
+        notificationMessage,
 
-        finalMessage
+        ""
 
     );
 
