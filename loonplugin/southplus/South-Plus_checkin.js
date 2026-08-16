@@ -1,6 +1,6 @@
 /**
- * @name South-Plus日常任务签到
- * @description South-Plus每日任务自动签到 
+ * @name South-Plus签到
+ * @description South-Plus日常+周常任务签到 
  */
 
 
@@ -11,8 +11,8 @@ if (!cookie) {
 
     $notification.post(
         "South-Plus签到",
-        "失败",
-        "未找到south_cookie"
+        "Cookie不存在",
+        ""
     );
 
     $done();
@@ -24,9 +24,6 @@ if (!cookie) {
 const base = "https://www.south-plus.net";
 
 const plugin = `${base}/plugin.php`;
-
-
-const cid = "15";
 
 const verify = "38dc1030";
 
@@ -113,6 +110,7 @@ function get(url) {
 
 
 
+
 function cleanResponse(text) {
 
 
@@ -143,7 +141,21 @@ function cleanResponse(text) {
 
 
 
-(async () => {
+
+async function runTask(name, cid) {
+
+
+
+    let result = {
+
+        name:name,
+
+        status:"",
+
+        log:""
+
+    };
+
 
 
 
@@ -168,6 +180,7 @@ function cleanResponse(text) {
 
 
 
+
     // 3. 领取任务
 
 
@@ -183,15 +196,17 @@ function cleanResponse(text) {
 
 
 
-
-
-    let notificationMessage = "";
-
-    let logMessage = "";
+    const cleanJob =
+        cleanResponse(jobResult);
 
 
 
 
+
+
+    /*
+       判断领取结果
+    */
 
 
     if (
@@ -231,11 +246,6 @@ function cleanResponse(text) {
 
 
 
-
-        const cleanJob =
-            cleanResponse(jobResult);
-
-
         const cleanJob2 =
             cleanResponse(job2Result);
 
@@ -243,14 +253,15 @@ function cleanResponse(text) {
 
 
 
+        result.log =
 
-        logMessage =
+        `[${name}]\n\n` +
 
-        "领取任务:\n" +
+        "领取:\n" +
 
         cleanJob +
 
-        "\n\n完成任务:\n" +
+        "\n\n完成:\n" +
 
         cleanJob2;
 
@@ -266,15 +277,15 @@ function cleanResponse(text) {
         ) {
 
 
-            notificationMessage =
-            "日常任务完成";
+            result.status =
+            `${name}任务完成`;
 
 
         } else {
 
 
-            notificationMessage =
-            "任务执行异常";
+            result.status =
+            `${name}任务异常`;
 
 
         }
@@ -287,17 +298,14 @@ function cleanResponse(text) {
 
 
 
-        const cleanJob =
-            cleanResponse(jobResult);
+        result.log =
 
+        `[${name}]\n\n` +
 
-
-
-        logMessage =
-
-        "领取任务:\n" +
+        "领取:\n" +
 
         cleanJob;
+
 
 
 
@@ -313,8 +321,9 @@ function cleanResponse(text) {
         ) {
 
 
-            notificationMessage =
-            "今日已签到";
+            result.status =
+            `${name}已签到`;
+
 
 
         } else if (
@@ -324,15 +333,16 @@ function cleanResponse(text) {
         ) {
 
 
-            notificationMessage =
-            "Cookie失效，请重新登录";
+            result.status =
+            "Cookie失效";
+
 
 
         } else {
 
 
-            notificationMessage =
-            "签到状态异常";
+            result.status =
+            `${name}未刷新`;
 
 
         }
@@ -344,9 +354,86 @@ function cleanResponse(text) {
 
 
 
+    return result;
 
-    console.log(logMessage);
 
+
+}
+
+
+
+
+
+
+
+
+
+(async () => {
+
+
+
+    let logs = [];
+
+    let notices = [];
+
+
+
+
+
+    // 日常
+
+    const daily =
+        await runTask("日常",15);
+
+
+
+    logs.push(daily.log);
+
+
+
+    notices.push(daily.status);
+
+
+
+
+
+
+    // 周常
+
+    const weekly =
+        await runTask("周常",14);
+
+
+
+    logs.push(weekly.log);
+
+
+
+    notices.push(weekly.status);
+
+
+
+
+
+
+
+
+    const logText =
+        logs.join("\n\n================\n\n");
+
+
+
+
+
+    const noticeText =
+        notices.join("\n");
+
+
+
+
+
+
+    console.log(logText);
 
 
 
@@ -356,12 +443,11 @@ function cleanResponse(text) {
 
         "South-Plus签到",
 
-        notificationMessage,
+        noticeText,
 
         ""
 
     );
-
 
 
 
