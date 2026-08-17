@@ -316,7 +316,9 @@ async function runTask(name, cid) {
 
             cleanJob.includes("还没超过") ||
 
-            cleanJob.includes("距离上次")
+            cleanJob.includes("距离上次") ||
+
+            cleanJob.includes("拒离上次")
 
         ) {
 
