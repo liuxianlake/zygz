@@ -10,8 +10,8 @@ let cookie = $persistentStore.read("south_cookie");
 if (!cookie) {
 
     $notification.post(
-        "South-Plus签到",
-        "Cookie不存在",
+        "South-Plus",
+        "日常：Cookie失效",
         ""
     );
 
@@ -26,7 +26,6 @@ const base = "https://www.south-plus.net";
 const plugin = `${base}/plugin.php`;
 
 const verify = "38dc1030";
-
 
 
 const userAgent =
@@ -63,9 +62,7 @@ function getHeaders() {
 
 function get(url) {
 
-
     return new Promise(resolve => {
-
 
         $httpClient.get(
 
@@ -79,9 +76,7 @@ function get(url) {
 
             },
 
-
             (error, response, body) => {
-
 
                 if (error) {
 
@@ -93,19 +88,13 @@ function get(url) {
 
                 }
 
-
             }
-
 
         );
 
-
     });
 
-
 }
-
-
 
 
 
@@ -113,14 +102,11 @@ function get(url) {
 
 function cleanResponse(text) {
 
-
     if (!text) return "";
-
 
     let match = text.match(
         /<!\[CDATA\[(.*?)\]\]>/
     );
-
 
     if (match) {
 
@@ -128,11 +114,9 @@ function cleanResponse(text) {
 
     }
 
-
     return text
         .replace(/<[^>]+>/g, "")
         .trim();
-
 
 }
 
@@ -140,23 +124,17 @@ function cleanResponse(text) {
 
 
 
-
-
 async function runTask(name, cid) {
-
-
 
     let result = {
 
-        name:name,
+        name: name,
 
-        status:"",
+        status: "异常",
 
-        log:""
+        log: ""
 
     };
-
-
 
 
     // 1. 社区论坛任务
@@ -166,9 +144,6 @@ async function runTask(name, cid) {
     );
 
 
-
-
-
     // 2. 新任务选择
 
     await get(
@@ -176,38 +151,23 @@ async function runTask(name, cid) {
     );
 
 
-
-
-
-
-
     // 3. 领取任务
 
-
     const jobUrl =
-
-    `${plugin}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
-
+        `${plugin}?H_name=tasks&action=ajax&actions=job&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
 
     const jobResult =
         await get(jobUrl);
 
 
-
-
     const cleanJob =
         cleanResponse(jobResult);
 
 
-
-
-
-
     /*
-       判断领取结果
-    */
-
+     * 领取成功
+     */
 
     if (
 
@@ -218,7 +178,6 @@ async function runTask(name, cid) {
     ) {
 
 
-
         // 4. 进入进行中的任务
 
         await get(
@@ -226,91 +185,57 @@ async function runTask(name, cid) {
         );
 
 
-
-
-
-
         // 5. 完成任务
 
-
         const job2Url =
-
-        `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
-
+            `${plugin}?H_name=tasks&action=ajax&actions=job2&cid=${cid}&nowtime=${Date.now()}&verify=${verify}`;
 
 
         const job2Result =
             await get(job2Url);
 
 
-
-
-
         const cleanJob2 =
             cleanResponse(job2Result);
 
 
-
-
-
         result.log =
-
-        `[${name}]\n\n` +
-
-        "领取:\n" +
-
-        cleanJob +
-
-        "\n\n完成:\n" +
-
-        cleanJob2;
+            `[${name}]\n\n` +
+            "领取:\n" +
+            cleanJob +
+            "\n\n完成:\n" +
+            cleanJob2;
 
 
-
-
-
+        /*
+         * 完成成功
+         */
 
         if (
-
             cleanJob2.includes("已经完成")
-
         ) {
 
-
-            result.status =
-            `${name}任务完成`;
-
+            result.status = "完成";
 
         } else {
 
-
-            result.status =
-            `${name}任务异常`;
-
+            result.status = "异常";
 
         }
-
-
-
 
 
     } else {
 
 
-
         result.log =
-
-        `[${name}]\n\n` +
-
-        "领取:\n" +
-
-        cleanJob;
+            `[${name}]\n\n` +
+            "领取:\n" +
+            cleanJob;
 
 
-
-
-
-
+        /*
+         * 已经完成 / 尚未刷新
+         */
 
         if (
 
@@ -322,10 +247,7 @@ async function runTask(name, cid) {
 
         ) {
 
-
-            result.status =
-            `${name}已签到`;
-
+            result.status = "未刷新";
 
 
         } else if (
@@ -334,35 +256,21 @@ async function runTask(name, cid) {
 
         ) {
 
-
-            result.status =
-            "Cookie失效";
-
+            result.status = "Cookie失效";
 
 
         } else {
 
-
-            result.status =
-            `${name}未刷新`;
-
+            result.status = "异常";
 
         }
-
 
     }
 
 
-
-
-
     return result;
 
-
-
 }
-
-
 
 
 
@@ -373,66 +281,45 @@ async function runTask(name, cid) {
 (async () => {
 
 
-
     let logs = [];
 
-    let notices = [];
 
-
-
-
-
-    // 日常
+    /*
+     * 日常
+     */
 
     const daily =
-        await runTask("日常",15);
-
+        await runTask("日常", 15);
 
 
     logs.push(daily.log);
 
 
 
-    notices.push(daily.status);
 
 
-
-
-
-
-    // 周常
+    /*
+     * 周常
+     */
 
     const weekly =
-        await runTask("周常",14);
-
+        await runTask("周常", 14);
 
 
     logs.push(weekly.log);
 
 
 
-    notices.push(weekly.status);
 
 
-
-
-
-
-
+    /*
+     * 日志
+     */
 
     const logText =
-        logs.join("\n\n================\n\n");
-
-
-
-
-
-    const noticeText =
-        notices.join("\n");
-
-
-
-
+        logs.join(
+            "\n\n================\n\n"
+        );
 
 
     console.log(logText);
@@ -441,11 +328,47 @@ async function runTask(name, cid) {
 
 
 
+    /*
+     * 通知
+     *
+     * 只发送一次通知
+     * 内容保持极短
+     */
+
+    let notificationText =
+        `日常：${daily.status}｜周常：${weekly.status}`;
+
+
+    /*
+     * Cookie 失效时明确提示
+     */
+
+    if (
+
+        daily.status === "Cookie失效" ||
+
+        weekly.status === "Cookie失效"
+
+    ) {
+
+        notificationText =
+            "Cookie失效，请重新登录";
+
+    }
+
+
+
+
+
+    /*
+     * 最终只调用一次通知
+     */
+
     $notification.post(
 
-        "South-Plus签到",
+        "South-Plus",
 
-        noticeText,
+        notificationText,
 
         ""
 
@@ -456,7 +379,6 @@ async function runTask(name, cid) {
 
 
     $done();
-
 
 
 })();
