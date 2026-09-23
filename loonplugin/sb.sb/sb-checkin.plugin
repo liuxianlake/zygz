@@ -12,7 +12,7 @@ checkin_url = input,"https://sb.sb/signin/",tag=签到接口地址,desc=已按�
 checkin_method = select,"POST","GET",tag=请求方式,desc=已确认为 POST，GET 仅测试用
 signin_message = input,"",tag=签到留言,desc=签到时附带的一句话留言，会显示在今日签到板，可留空
 success_keyword = input,"",tag=成功关键字,desc=备用：脚本已自动识别签到结果，此项一般留空
-cron_expr = input,"0 9 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 9:00
+cron_expr = input,"30 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:30
 notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知
 
 [General]
@@ -22,12 +22,13 @@ notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知
 [Host]
 
 [Script]
+# ⚠️ 下方三处 <你的GitHub用户名> 需替换为实际用户名（或使用相对路径版本）
 # 1. 浏览论坛时自动捕获 Cookie（request 阶段触发，无需手动操作）
-request if ${url} ~= /^https?:\/\/([^\/]+\.)?(sb|linux)\.sb\// then script("sb-cookie.js") with tag="sb论坛Cookie捕获", timeout=10
+request if ${url} ~= /^https?:\/\/([^\/]+\.)?(sb|linux)\.sb\// then script("https://raw.githubusercontent.com/<你的GitHub用户名>/sb-checkin/main/sb-cookie.js") with tag="sb论坛Cookie捕获", timeout=10
 # 2. 定时自动签到（自动完成：取 CSRF token → POST 签到 → 解析结果）
-cron ${cron_expr} then script("sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛自动签到", timeout=300
+cron ${cron_expr} then script("https://raw.githubusercontent.com/<你的GitHub用户名>/sb-checkin/main/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛自动签到", timeout=300
 # 3. 手动签到（用于配置后测试）
-generic then script("sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛手动签到", timeout=60, img_url="checkmark.circle"
+generic then script("https://raw.githubusercontent.com/<你的GitHub用户名>/sb-checkin/main/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛手动签到", timeout=60, img_url="checkmark.circle"
 
 [Mitm]
 hostname = sb.sb, *.sb.sb, linux.sb, *.linux.sb
