@@ -52,6 +52,7 @@ function brief(body) {
 
 function main() {
   var cookie = $persistentStore.read(COOKIE_KEY);
+  console.log("sb-checkin: 脚本已执行，Cookie " + (cookie ? "已存储 (" + cookie.length + " 字符)" : "未存储"));
   if (!cookie) {
     notify("❌ 未找到 Cookie", "请先用浏览器登录论坛，让插件自动捕获 Cookie");
     console.log("sb-checkin: 缺少 Cookie");
@@ -81,6 +82,7 @@ function main() {
   }
 
   // ---------- 第 1 步：GET 签到页，提取 _csrf ----------
+  console.log("sb-checkin: 正在请求 " + url);
   $httpClient.get({ url: url, headers: headersFor() }, function (err, resp, data) {
     if (err) {
       notify("❌ 请求失败（获取签到页）", String(err));
