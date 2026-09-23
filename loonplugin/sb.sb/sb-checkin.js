@@ -26,7 +26,8 @@ var DEFAULT_UA =
 var arg = typeof $argument === "object" && $argument !== null ? $argument : {};
 
 function notify(subtitle, content) {
-  if (arg.notify === true) {
+  // 宽松判断：默认开启，仅当明确为 false 时才静默（兼容不同版本 $argument 的类型差异）
+  if (arg.notify !== false && arg.notify !== "false") {
     $notification.post("烧饼论坛签到", subtitle, content);
   }
 }
