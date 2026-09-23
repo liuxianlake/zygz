@@ -2,6 +2,7 @@
 #!desc = 浏览论坛时自动捕获 Cookie（存入 Loon 持久化存储），并按设定时间自动签到（带通知）。
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
+#!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1790127568088_favicon.ico
 #!tag = 签到
 #!system = iOS,iPadOS,macOS
 #!loon_version = 3.5.1(983)
