@@ -97,6 +97,14 @@ function main() {
       return;
     }
 
+    // 登录态校验：登录用户的页面会输出 window.BBS_UID
+    if (html.indexOf("BBS_UID") === -1) {
+      notify("❌ Cookie 已失效", "页面显示未登录状态，请重新登录论坛一次以更新 Cookie");
+      console.log("sb-checkin: 页面无 BBS_UID，疑似未登录，HTTP " + resp.status);
+      $done();
+      return;
+    }
+
     var csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
     if (!csrfMatch) {
       notify("❌ 无法获取 CSRF Token", "页面未包含 _csrf，Cookie 可能已失效，请重新登录论坛一次\n\n" + brief(html));
@@ -166,4 +174,3 @@ function main() {
 }
 
 main();
-
