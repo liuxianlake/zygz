@@ -13,28 +13,27 @@ sb-checkin/
 
 ## 一、部署到 GitHub
 
-```bash
-cd sb-checkin
-git init
-git add .
-git commit -m "feat: sb.sb 论坛签到插件"
-# 在 GitHub 新建仓库 sb-checkin 后：
-git remote add origin https://github.com/<你的用户名>/sb-checkin.git
-git branch -M main
-git push -u origin main
+本插件已在仓库 `liuxianlake/zygz` 中，目录为 `loonplugin/sb.sb/`：
+
+```
+zygz/
+└── loonplugin/
+    └── sb.sb/
+        ├── sb-checkin.plugin   # 插件主文件（远程安装入口）
+        ├── sb-cookie.js       # Cookie 捕获脚本
+        ├── sb-checkin.js       # 签到脚本
+        └── README.md
 ```
 
-> 记得把 `sb-checkin.plugin` 顶部的 `#!author` 和 `#!homepage` 改成你自己的，
-> 以及 `[Script]` 里三处 URL 中的 `<你的GitHub用户名>` 替换为实际用户名。
-> （若你使用相对路径版本遇到"脚本运行无任何输出/日志"，请改用完整 URL——相对路径在部分远程插件场景下不解析）
+把本目录的 4 个文件推送到该目录即可。
+
+> ⚠️ **重要**：`[Script]` 里的脚本地址必须是**完整 URL**（含 `loonplugin/sb.sb/` 路径层级）。
+> 相对路径在远程插件中不解析，会导致「脚本无输出、日志无记录」——脚本根本没被加载。
 
 ### 安装链接（二选一）
 
-- 官方 Raw：`https://raw.githubusercontent.com/<你的用户名>/sb-checkin/main/sb-checkin.plugin`
-- jsDelivr 镜像（国内更快）：`https://cdn.jsdelivr.net/gh/<你的用户名>/sb-checkin@main/sb-checkin.plugin`
-
-> 插件内脚本用的是相对路径，Loon 会自动解析到同目录下的 js 文件，无需修改。
-> 如遇脚本加载失败，把 `[Script]` 里的 `script("xxx.js")` 改成完整 raw URL 即可。
+- 官方 Raw：`https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.plugin`
+- jsDelivr 镜像（国内更快）：`https://cdn.jsdelivr.net/gh/liuxianlake/zygz@main/loonplugin/sb.sb/sb-checkin.plugin`
 
 ## 二、首次配置（获取 Cookie）
 
