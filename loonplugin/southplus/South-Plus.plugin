@@ -1,8 +1,29 @@
-#!name=South-Plus签到
-#!desc=South-Plus日常+周常任务自动签到
-#!icon=https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786666943582_2026-8-14_8-13-43.png
+#!name = South-Plus签到
+#!desc = South-Plus 日常+周常任务自动签到；浏览论坛时自动捕获/刷新 Cookie（会话有效期约一年）
+#!author = liuxianlake
+#!homepage = https://github.com/liuxianlake/zygz
+#!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786666943582_2026-8-14_8-13-43.png
+#!tag = 签到
+#!system = iOS,iPadOS,macOS
+#!loon_version = 3.5.1(983)
+#!type = normal
 
+[Argument]
+cron_expr = input,"30 7 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 7:30
+
+[General]
+
+[Rewrite]
+
+[Host]
 
 [Script]
+# 1. 浏览论坛时自动捕获/刷新 Cookie（request 阶段触发，无需手动操作）
+request if ${url} ~= /^https?:\/\/(www\.)?south-plus\.net\// then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/southplus/south-plus-cookie.js") with tag="South-Plus Cookie捕获", timeout=10
+# 2. 定时自动签到（日常 cid=15 + 周常 cid=14）
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/southplus/South-Plus_checkin.js") with tag="South-Plus签到", timeout=60
+# 3. 手动签到（配置后测试用）
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/southplus/South-Plus_checkin.js") with tag="South-Plus手动签到", timeout=60, img_url="checkmark.circle"
 
-cron "30 7 * * *" script-path=https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/southplus/South-Plus_checkin.js,tag=South-Plus签到,timeout=30
+[Mitm]
+hostname = south-plus.net, *.south-plus.net
