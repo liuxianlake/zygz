@@ -1,4 +1,4 @@
-#!name = sb.sb 论坛自动签到
+#!name = 烧饼论坛自动签到
 #!desc = 浏览论坛时自动捕获 Cookie（存入 Loon 持久化存储），并按设定时间自动签到（带通知）。
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
