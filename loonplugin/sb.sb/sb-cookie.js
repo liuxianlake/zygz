@@ -1,12 +1,13 @@
 /**
  * sb.sb 论坛 Cookie 捕获脚本（Request Script）
  * 浏览器访问论坛时自动提取请求头中的 Cookie 并保存。
- * 存储键：sb_forum_cookie / sb_forum_ua
+ * 存储键：sb_forum_cookie / sb_forum_ua / sb_forum_cookie_ts
  * 依赖：插件 [Mitm] 已包含论坛域名（HTTPS 请求需解密后才能读到请求头）
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
 var UA_KEY = "sb_forum_ua";
+var TS_KEY = "sb_forum_cookie_ts";
 
 var headers = $request.headers || {};
 var cookie = headers["Cookie"] || headers["cookie"] || "";
@@ -34,6 +35,8 @@ if (!cookie) {
     if (ua) {
       $persistentStore.write(ua, UA_KEY);
     }
+    // 记录保存时间，签到脚本据此提示 Cookie 可能已过期
+    $persistentStore.write(String(Date.now()), TS_KEY);
     if (ok) {
       $notification.post(
         "sb.sb 论坛签到",

@@ -16,6 +16,13 @@
  *
  * 注意：签到请求由 Loon 发出，能否走代理取决于你自己的分流配置；
  * 请确保论坛域名（屏蔽大陆 IP）在你的规则中走代理出口。
+ *
+ * 登录态判定说明（2026-09-28 修复）：
+ *   未登录访问 /signin/ 会 302 到 /login/，而该登录页同样含 window.BBS_UID
+ *   （站点对游客也输出空值），因此不能只看关键字。现在改用「二选一」判定：
+ *     a) 响应体含 _csrf → 确实停在签到页（已登录）
+ *     b) 请求中途被跳到 /login/ → 未登录（resp.url 变化）
+ *   POST 返回 404 / 出现「页面不存在」一律判定为 Cookie 失效，不再误报为未知。
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
@@ -50,6 +57,20 @@ function brief(body) {
   return text.length > 160 ? text.slice(0, 160) + "…" : text;
 }
 
+/** 判断一个响应是否属于「未登录 / 会话失效」 */
+function looksLoggedOut(resp, html) {
+  var code = resp && resp.status ? resp.status : 0;
+  // 签到接口未授权：NodeBB 对无会话的 POST 会直接 404「页面不存在」
+  if (code === 401 || code === 403) return true;
+  if (code === 404) return true;
+  // 出现登录页特征标题
+  if (html.indexOf("登录 - 烧饼论坛") !== -1) return true;
+  // 请求最终落到 /login/（未登录访问 /signin/ 会被重定向）
+  var finalUrl = (resp && (resp.url || resp.finalUrl)) || "";
+  if (finalUrl && /\/login\/?($|[?#])/.test(finalUrl)) return true;
+  return false;
+}
+
 function main() {
   var cookie = $persistentStore.read(COOKIE_KEY);
   console.log("sb-checkin: 脚本已执行，Cookie " + (cookie ? "已存储 (" + cookie.length + " 字符)" : "未存储"));
@@ -59,6 +80,8 @@ function main() {
     $done();
     return;
   }
+  // 过期时间戳：由 sb-cookie.js 在每次保存新 Cookie 时写入，用于判断会话是否可能已过期
+  var savedAt = parseInt($persistentStore.read("sb_forum_cookie_ts") || "0", 10) || 0;
 
   var url = String(arg.checkin_url || "https://sb.sb/signin/").trim() || "https://sb.sb/signin/";
   var method = String(arg.checkin_method || "POST").toUpperCase();
@@ -91,6 +114,18 @@ function main() {
       return;
     }
     var html = String(data || "");
+    var httpCode = resp && resp.status ? resp.status : 0;
+
+    // 未登录 / 会话失效：响应落到了登录页（含被重定向到 /login/）
+    if (looksLoggedOut(resp, html)) {
+      notify(
+        "❌ Cookie 已失效",
+        "签到页跳转到了登录页（HTTP " + httpCode + "）。请在手机浏览器打开一次论坛并保持登录，让插件重新捕获 Cookie 后即可恢复。"
+      );
+      console.log("sb-checkin: 疑似未登录，最终地址 " + ((resp && (resp.url || resp.finalUrl)) || url) + "，HTTP " + httpCode);
+      $done();
+      return;
+    }
 
     // 已签到：页面出现置灰的「今日已签到」按钮
     if (html.indexOf("今日已签到") !== -1) {
@@ -100,18 +135,15 @@ function main() {
       return;
     }
 
-    // 登录态校验：登录用户的页面会输出 window.BBS_UID
-    if (html.indexOf("BBS_UID") === -1) {
-      notify("❌ Cookie 已失效", "页面显示未登录状态，请重新登录论坛一次以更新 Cookie");
-      console.log("sb-checkin: 页面无 BBS_UID，疑似未登录，HTTP " + resp.status);
-      $done();
-      return;
-    }
-
     var csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
     if (!csrfMatch) {
-      notify("❌ 无法获取 CSRF Token", "页面未包含 _csrf，Cookie 可能已失效，请重新登录论坛一次\n\n" + brief(html));
-      console.log("sb-checkin: 未找到 _csrf，HTTP " + resp.status);
+      // 拿不到 _csrf 且不在登录页：多半也是会话失效（或站点结构变动）
+      var hint = savedAt ? "（Cookie 保存于 " + new Date(savedAt).toLocaleString() + "）" : "";
+      notify(
+        "❌ 无法获取 CSRF Token",
+        "页面未包含 _csrf，Cookie 很可能已失效" + hint + "，请重新登录论坛一次更新 Cookie\n\n" + brief(html)
+      );
+      console.log("sb-checkin: 未找到 _csrf，HTTP " + httpCode);
       $done();
       return;
     }
@@ -145,6 +177,18 @@ function main() {
           return;
         }
         var html2 = String(data2 || "");
+        var http2 = resp2 && resp2.status ? resp2.status : 0;
+
+        // 优先级最高：未登录 / 会话失效（404「页面不存在」是最典型的信号）
+        if (looksLoggedOut(resp2, html2)) {
+          notify(
+            "❌ Cookie 已失效，签到达不到",
+            "HTTP " + http2 + "：服务端把请求当成了未登录。请在浏览器打开一次论坛保持登录，让插件重新捕获 Cookie，之后会自动恢复签到。"
+          );
+          console.log("sb-checkin: POST 判定为未登录，HTTP " + http2 + " | " + brief(html2));
+          $done();
+          return;
+        }
 
         // 解析签到结果块：<div class="signin-result success">...</div>
         var rm = html2.match(/class="signin-result([^"]*)"[^>]*>([\s\S]*?)<\/div>/);
@@ -154,7 +198,7 @@ function main() {
           if (cls.indexOf("success") !== -1) {
             notify("✅ 签到成功", text);
           } else {
-            notify("❌ 签到未成功", text + "\nHTTP " + resp2.status);
+            notify("❌ 签到未成功", text + "\nHTTP " + http2);
           }
           console.log("sb-checkin: signin-result" + cls + " | " + text);
         } else if (html2.indexOf("今日已签到") !== -1) {
@@ -164,11 +208,11 @@ function main() {
           // 兜底：成功关键字 / 状态码
           var kw = String(arg.success_keyword || "").trim();
           if (kw && html2.indexOf(kw) !== -1) {
-            notify("✅ 签到成功", "HTTP " + resp2.status + "\n" + brief(html2));
+            notify("✅ 签到成功", "HTTP " + http2 + "\n" + brief(html2));
           } else {
-            notify("⚠️ 签到结果待确认", "HTTP " + resp2.status + "\n" + brief(html2));
+            notify("⚠️ 签到结果待确认", "HTTP " + http2 + "\n" + brief(html2));
           }
-          console.log("sb-checkin: POST -> HTTP " + resp2.status + " | " + brief(html2));
+          console.log("sb-checkin: POST -> HTTP " + http2 + " | " + brief(html2));
         }
         $done();
       }
