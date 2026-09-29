@@ -15,18 +15,24 @@
  *   success_keyword  备用成功关键字，一般留空
  *   notify           是否推送通知（Boolean）
  *
- * ── 2026-09-29 修订说明（重要）──────────────────────────────────────────
- * 上一版用 response.url / response.finalUrl 判断「是否被重定向到登录页」，
- * 但 Loon 官方 Script API 文档里 $httpClient 回调的 response 只有
- * { status, headers, h2_trailers }，**没有 url / finalUrl 字段**——
- * 那段判断从未生效过。现改为**实测验证过的**页面特征判定：
- *   · 登录页特征：title 含「登录 - 烧饼论坛」、含 type="password"、含 action="/login" 表单
- *   · 地区限制：页面含「暂未对您所在地区开放」（该站按地区封锁，封锁时返回 404）
- * 另新增两项增强：
- *   · 从签到页表单里解析真实提交地址（站点改版换接口时自动跟随，不再写死）
- *   · 两个请求都显式设置 auto-cookie=false（Cookie 完全由脚本自己管理，
- *     避免 Loon 内部 Cookie 罐覆盖我们显式带上的会话）
- * 并把 GET/POST 的 HTTP 状态、页面标题、提交地址写进日志，便于一次定位问题。
+ * ── 2026-09-29 修订说明（重要，两处根因修复）────────────────────────────
+ * 【根因 1】站点已于近日改为 AJAX-only 接口：前端 JS 用
+ *   fetch(form.action, {method:"POST", body:FormData,
+ *     headers:{"X-Requested-With":"XMLHttpRequest"}}) 提交，
+ *   响应是 JSON（{ok, message, redirect, html}）。
+ *   不带 X-Requested-With 头的 POST 会被服务端拒绝（实测返回 404/403），
+ *   这就是「GET 正常但 POST 404」的真正原因。
+ *   → 现在 POST 显式带该头，并优先按 JSON 解析响应。
+ * 【根因 2】签到页上「搜索表单」也带 _csrf 且排在 DOM 前面，
+ *   上一版的表单解析误选了 /search/（把签到数据提交成了搜索）。
+ *   → 现在只在 action 匹配 signin/checkin/daily 或含 message 输入的表单里选。
+ * 另：上一版用 response.url 判断重定向——该字段在 Loon 的 $httpClient
+ * 回调里并不存在（response 只有 {status, headers, h2_trailers}），
+ * 从未生效过，已删除，改用实测验证的页面特征（密码框 / /login 表单 / 标题）。
+ * 其他增强：
+ *   · 识别地区限制（该站按地区封锁，封锁时返回 404，页面文案「暂未对您所在地区开放」）
+ *   · 两个请求都显式 auto-cookie=false（Cookie 由脚本自己管理，防内部 Cookie 罐覆盖）
+ *   · GET/POST 的 HTTP 状态、页面标题、提交地址、JSON 响应都写进日志
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
@@ -98,23 +104,31 @@ function resolveUrl(href, origin) {
 }
 
 /**
- * 从签到页里解析真正的提交地址：
- * 找第一个「包含 _csrf 输入、且 action 不指向 /login」的表单。
- * 站点若改版换了接口路径，脚本会自动跟随，不必改代码。
+ * 从签到页里解析真正的提交地址。
+ * 2026-09-29 修复：签到页上「搜索表单」也带 _csrf 且排在前面，
+ * 之前"第一个含 _csrf 的表单"会误选 /search/。
+ * 现在的优先级：
+ *   1) action 明确是签到路径（signin/checkin/daily）的表单
+ *   2) 含 message 输入（签到留言框）的表单
+ *   3) 都没有 → 返回 ""，由调用方回退到配置的 checkin_url
  */
-function findSubmitAction(html, origin) {
-  var re = /<form\b[^>]*>[\s\S]*?<\/form>/gi;
-  var m;
-  while ((m = re.exec(String(html || ""))) !== null) {
-    var form = m[0];
-    if (!/name=["']_csrf["']/i.test(form)) continue;
-    var am = form.match(/action=["']([^"']*)["']/i);
-    if (!am) continue;
-    var action = am[1];
-    if (/\/login\b/i.test(action)) continue;
-    return resolveUrl(action, origin);
+function findSubmitAction(html, origin, pageUrl) {
+  var forms = String(html || "").match(/<form\b[^>]*>[\s\S]*?<\/form>/gi) || [];
+  var byMessage = "";
+  for (var i = 0; i < forms.length; i++) {
+    var f = forms[i];
+    if (!/name=["']_csrf["']/i.test(f)) continue;             // 必须含 _csrf
+    var am = f.match(/action=["']([^"']*)["']/i);
+    var action = am ? am[1] : "";
+    if (/\/login\b/i.test(action)) continue;                   // 排除登录表单
+    if (/signin|checkin|daily/i.test(action)) {
+      return action ? resolveUrl(action, origin) : pageUrl;
+    }
+    if (!byMessage && /name=["']message["']/i.test(f)) {
+      byMessage = action ? resolveUrl(action, origin) : pageUrl;
+    }
   }
-  return "";
+  return byMessage;
 }
 
 function main() {
@@ -231,9 +245,9 @@ function main() {
     console.log("sb-checkin: 已获取 _csrf (" + csrf.length + " chars)");
 
     // 解析真实提交地址（站点改版时自动跟随）
-    var discovered = findSubmitAction(html, origin);
+    var discovered = findSubmitAction(html, origin, url);
     var target = discovered || url;
-    console.log("sb-checkin: 签发表单提交地址 = " + (discovered || "(未找到表单，回退配置地址)") + " -> " + target);
+    console.log("sb-checkin: 签发表单提交地址 = " + (discovered || "(未找到签到表单，回退配置地址)") + " -> " + target);
 
     // GET 模式（仅测试用）
     if (method !== "POST") {
@@ -248,8 +262,12 @@ function main() {
     var msg = String(arg.signin_message || "").trim();
     var body = "_csrf=" + encodeURIComponent(csrf) + "&message=" + encodeURIComponent(msg);
 
+    // ⚠️ 站点已改为 AJAX 接口：不带 X-Requested-With 头的 POST 会被拒绝（实测返回 404/403）
     var postOpts = baseOptions(target);
-    postOpts.headers = headersFor({ "Content-Type": "application/x-www-form-urlencoded" });
+    postOpts.headers = headersFor({
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "XMLHttpRequest"
+    });
     postOpts.body = body;
 
     $httpClient.post(postOpts, function (err2, resp2, data2) {
@@ -261,9 +279,43 @@ function main() {
       }
       var html2 = String(data2 || "");
       var code2 = statusOf(resp2);
-      console.log("sb-checkin: POST -> HTTP " + code2 + " | 标题「" + pageTitle(html2) + "」| " + brief(html2));
+      console.log("sb-checkin: POST -> HTTP " + code2 + " | " + brief(html2));
 
-      // 1) 最权威：签到结果块
+      // 1) JSON 响应（站点 AJAX 接口的标准返回：{ok, message, redirect, html}）
+      var json = null;
+      if (/^\s*\{/.test(html2)) {
+        try { json = JSON.parse(html2); } catch (e) { json = null; }
+      }
+      if (json && typeof json === "object") {
+        console.log("sb-checkin: POST JSON -> " + JSON.stringify(json).slice(0, 200));
+        var okVal = json.ok === 1 || json.ok === true;
+        var jmsg = String(json.message || json.msg || "").trim();
+        var jhtml = String(json.html || "");
+
+        // html 字段里可能带签到结果块
+        var jr = jhtml.match(/class="signin-result([^"]*)"[^>]*>([\s\S]*?)<\/div>/);
+        if (jr) {
+          var jcls = jr[1] || "";
+          var jtext = stripTags(jr[2]) || jmsg;
+          if (jcls.indexOf("success") !== -1) {
+            notify("✅ 签到成功", jtext);
+          } else {
+            notify("❌ 签到未成功", jtext + (jmsg && jmsg !== jtext ? "\n" + jmsg : ""));
+          }
+          console.log("sb-checkin: JSON.html signin-result" + jcls + " | " + jtext);
+        } else if (okVal) {
+          notify("✅ 签到成功", jmsg || "HTTP " + code2);
+        } else if (/已签到/.test(jmsg)) {
+          notify("ℹ️ 今日已签到", jmsg || "无需重复签到");
+        } else {
+          notify("❌ 签到未成功", jmsg || "HTTP " + code2 + "\n" + brief(html2));
+        }
+        $done();
+        return;
+      }
+
+      // 2) HTML 响应：签到结果块（旧版页面兼容）
+      console.log("sb-checkin: POST -> HTTP " + code2 + " | 标题「" + pageTitle(html2) + "」");
       var rm = html2.match(/class="signin-result([^"]*)"[^>]*>([\s\S]*?)<\/div>/);
       if (rm) {
         var cls = rm[1] || "";
