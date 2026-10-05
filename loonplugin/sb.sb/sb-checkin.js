@@ -33,11 +33,21 @@
  *   · 识别地区限制（该站按地区封锁，封锁时返回 404，页面文案「暂未对您所在地区开放」）
  *   · 两个请求都显式 auto-cookie=false（Cookie 由脚本自己管理，防内部 Cookie 罐覆盖）
  *   · GET/POST 的 HTTP 状态、页面标题、提交地址、JSON 响应都写进日志
+ *
+ * ── 2026-10-05 修订说明（与 Cookie 捕获脚本配合的「按需捕获」闭环）──────────
+ * 现象：每次登录论坛 → sb-cookie.js 自动捕获 → 下次签到失败。
+ * 根因：旧捕获脚本只要 Cookie 变了就覆盖，且只校验「存在 bbs_session」，
+ *       而游客会话同样带 bbs_session，于是好的登录 Cookie 被游客 Cookie 覆盖。
+ * 对策：捕获脚本改为「只在无 Cookie / 失效时捕获，且保存前校验登录态」。
+ *       本脚本负责在**确认失效时写标记 sb_forum_cookie_invalid=1**，
+ *       这样捕获脚本才知道「该重新捕获了」；一旦签到成功则清除标记，
+ *       此后浏览论坛不会再覆盖 Cookie。
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
 var UA_KEY = "sb_forum_ua";
 var TS_KEY = "sb_forum_cookie_ts";
+var INVALID_KEY = "sb_forum_cookie_invalid";
 var DEFAULT_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
 
@@ -49,6 +59,22 @@ function notify(subtitle, content) {
     $notification.post("烧饼论坛签到", subtitle, content);
   }
 }
+
+/**
+ * 标记现存 Cookie 已失效 → 下次浏览论坛时，Cookie 捕获脚本才会重新捕获。
+ * 这是「按需捕获」闭环的开关：只有这里置 1，捕获脚本才会覆盖 Cookie。
+ */
+function markCookieInvalid(reason) {
+  $persistentStore.write("1", INVALID_KEY);
+  console.log("sb-checkin: 已标记 Cookie 失效 -> " + reason);
+}
+
+/** 清除失效标记：Cookie 仍然有效，不要让捕获脚本再覆盖它 */
+function clearCookieInvalid() {
+  $persistentStore.write("", INVALID_KEY);
+}
+
+var RELOGIN_HINT = "请重新登录论坛一次，插件会自动重新捕获 Cookie。";
 
 function statusOf(resp) {
   var c = resp && resp.status ? Number(resp.status) : 0;
@@ -206,7 +232,8 @@ function main() {
     }
 
     if (code === 401 || code === 403) {
-      notify("❌ Cookie 已失效", "签到页返回 HTTP " + code + savedHint + "，请重新登录论坛一次。");
+      markCookieInvalid("GET HTTP " + code);
+      notify("❌ Cookie 已失效", "签到页返回 HTTP " + code + savedHint + "。" + RELOGIN_HINT);
       console.log("sb-checkin: GET 未授权 HTTP " + code);
       $done();
       return;
@@ -214,9 +241,10 @@ function main() {
 
     // 被重定向到登录页
     if (looksLoggedOut(html)) {
+      markCookieInvalid("GET 跳转到登录页");
       notify(
         "❌ Cookie 已失效",
-        "签到页跳转到了登录页" + savedHint + "。请在手机浏览器打开一次论坛并保持登录，让插件重新捕获 Cookie。"
+        "签到页跳转到了登录页" + savedHint + "。" + RELOGIN_HINT
       );
       console.log("sb-checkin: 页面为登录页，判定未登录");
       $done();
@@ -225,6 +253,7 @@ function main() {
 
     // 已签到
     if (html.indexOf("今日已签到") !== -1) {
+      clearCookieInvalid();
       notify("ℹ️ 今日已签到", "今天已经签过啦，明天再来");
       console.log("sb-checkin: 今日已签到（GET 阶段检测）");
       $done();
@@ -233,9 +262,10 @@ function main() {
 
     var csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
     if (!csrfMatch) {
+      markCookieInvalid("GET 页面无 _csrf");
       notify(
         "❌ 无法获取 CSRF Token",
-        "签到页未包含 _csrf" + savedHint + "，Cookie 可能已失效，请重新登录论坛一次。\n" + brief(html)
+        "签到页未包含 _csrf" + savedHint + "，Cookie 可能已失效。" + RELOGIN_HINT + "\n" + brief(html)
       );
       console.log("sb-checkin: 未找到 _csrf，HTTP " + code);
       $done();
@@ -298,15 +328,21 @@ function main() {
           var jcls = jr[1] || "";
           var jtext = stripTags(jr[2]) || jmsg;
           if (jcls.indexOf("success") !== -1) {
+            clearCookieInvalid();
             notify("✅ 签到成功", jtext);
           } else {
             notify("❌ 签到未成功", jtext + (jmsg && jmsg !== jtext ? "\n" + jmsg : ""));
           }
           console.log("sb-checkin: JSON.html signin-result" + jcls + " | " + jtext);
         } else if (okVal) {
+          clearCookieInvalid();
           notify("✅ 签到成功", jmsg || "HTTP " + code2);
         } else if (/已签到/.test(jmsg)) {
+          clearCookieInvalid();
           notify("ℹ️ 今日已签到", jmsg || "无需重复签到");
+        } else if (/登录|未登录|session/i.test(jmsg)) {
+          markCookieInvalid("POST JSON: " + jmsg);
+          notify("❌ Cookie 已失效", "服务端返回：" + jmsg + savedHint + "。" + RELOGIN_HINT);
         } else {
           notify("❌ 签到未成功", jmsg || "HTTP " + code2 + "\n" + brief(html2));
         }
@@ -321,6 +357,7 @@ function main() {
         var cls = rm[1] || "";
         var text = stripTags(rm[2]);
         if (cls.indexOf("success") !== -1) {
+          clearCookieInvalid();
           notify("✅ 签到成功", text);
         } else {
           notify("❌ 签到未成功", text + "\nHTTP " + code2);
@@ -332,6 +369,7 @@ function main() {
 
       // 2) 已签到
       if (html2.indexOf("今日已签到") !== -1) {
+        clearCookieInvalid();
         notify("ℹ️ 今日已签到", "无需重复签到");
         console.log("sb-checkin: 今日已签到（POST 阶段检测）");
         $done();
@@ -347,13 +385,18 @@ function main() {
       }
 
       // 4) 明确失败：404 / 登录页
+      //    注：NodeBB 对「无有效会话」的提交同样返回 404，因此两种情况都标记失效，
+      //    让捕获脚本在用户下次浏览论坛时重新捕获（重新捕获本身不会有害）。
       if (code2 === 404 || looksLoggedOut(html2)) {
-        var why = looksLoggedOut(html2)
+        var isLogin = looksLoggedOut(html2);
+        var why = isLogin
           ? "服务端把请求当成了未登录"
-          : "提交地址返回 404，接口路径可能已变化";
+          : "提交地址返回 404（会话失效或接口路径变化）";
+        markCookieInvalid("POST " + (isLogin ? "落入登录页" : "HTTP 404"));
         notify(
           "❌ 签到未成功（HTTP " + code2 + "）",
           "提交到 " + target + "\n原因：" + why + savedHint +
+            "\n" + (isLogin ? RELOGIN_HINT : "若反复出现，可能是接口变更。") +
             "\n页面标题「" + pageTitle(html2) + "」\n" + brief(html2)
         );
         console.log("sb-checkin: POST 失败判定 -> " + why);
@@ -364,6 +407,7 @@ function main() {
       // 5) 兜底：成功关键字 / 状态码
       var kw = String(arg.success_keyword || "").trim();
       if (kw && html2.indexOf(kw) !== -1) {
+        clearCookieInvalid();
         notify("✅ 签到成功", "HTTP " + code2 + "\n" + brief(html2));
       } else {
         notify("⚠️ 签到结果待确认", "HTTP " + code2 + " · 提交到 " + target + "\n" + brief(html2));
