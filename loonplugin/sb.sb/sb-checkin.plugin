@@ -1,5 +1,5 @@
 #!name = 烧饼论坛自动签到
-#!desc = 按需捕获 Cookie（仅在无 Cookie 或签到提示失效时才重新捕获，且保存前校验登录态），并按设定时间自动签到（带通知）。
+#!desc = 自动完成 Cap 人机验证并签到（按需捕获 Cookie，仅在无 Cookie 或签到提示失效时才重新捕获），按设定时间自动签到并推送通知。
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
 #!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1790127568088_favicon.ico
@@ -26,10 +26,11 @@ notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知
 [Script]
 # 1. 浏览论坛时按需捕获 Cookie（request 阶段触发；已有可用 Cookie 时不会覆盖）
 request if ${url} ~= /^https?:\/\/([^\/]+\.)?(sb|linux)\.sb\// then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-cookie.js", {${checkin_url}, ${capture_mode}}) with tag="sb论坛Cookie捕获", timeout=20
-# 2. 定时自动签到（自动完成：取 CSRF token → POST 签到 → 解析结果）
+# 2. 定时自动签到（自动完成：取 CSRF → Cap 人机验证 → POST 签到 → 解析结果）
+#    注意 timeout 需 300 秒：Cap 的工作量证明在手机上要跑十几到几十秒
 cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛自动签到", timeout=300
-# 3. 手动签到（用于配置后测试）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛手动签到", timeout=60, img_url="checkmark.circle"
+# 3. 手动签到（用于配置后测试，同样需要等人机验证算完）
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛手动签到", timeout=300, img_url="checkmark.circle"
 
 [Mitm]
 hostname = sb.sb, *.sb.sb, linux.sb, *.linux.sb
