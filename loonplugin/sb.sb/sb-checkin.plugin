@@ -13,6 +13,7 @@ checkin_url = input,"https://sb.sb/signin/",tag=签到接口地址,desc=已按�
 checkin_method = select,"POST","GET",tag=请求方式,desc=已确认为 POST，GET 仅测试用
 signin_message = input,"",tag=签到留言,desc=签到时附带的一句话留言，会显示在今日签到板，可留空
 success_keyword = input,"",tag=成功关键字,desc=备用：脚本已自动识别签到结果，此项一般留空
+cap_node = input,"",tag=Cap验证出口,desc=人机验证域名(capjs.net)走哪个策略组/节点（填策略组名或节点名，如 PROXY）。留空=跟随内置分流。若通知提示「人机验证失败/请求超时」，把这里填成你代理论坛用的策略组名即可
 capture_mode = select,"auto","always",tag=Cookie捕获策略,desc=auto:仅在没有Cookie或签到提示失效后才重新捕获（推荐）；always:每次浏览论坛都校验并更新
 cron_expr = input,"30 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:30
 notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知
@@ -28,9 +29,9 @@ notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知
 request if ${url} ~= /^https?:\/\/([^\/]+\.)?(sb|linux)\.sb\// then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-cookie.js", {${checkin_url}, ${capture_mode}}) with tag="sb论坛Cookie捕获", timeout=20
 # 2. 定时自动签到（自动完成：取 CSRF → Cap 人机验证 → POST 签到 → 解析结果）
 #    注意 timeout 需 300 秒：Cap 的工作量证明在手机上要跑十几到几十秒
-cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛自动签到", timeout=300
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}, ${cap_node}}) with tag="sb论坛自动签到", timeout=300
 # 3. 手动签到（用于配置后测试，同样需要等人机验证算完）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}}) with tag="sb论坛手动签到", timeout=300, img_url="checkmark.circle"
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sb.sb/sb-checkin.js", {${checkin_url}, ${checkin_method}, ${signin_message}, ${success_keyword}, ${notify}, ${cap_node}}) with tag="sb论坛手动签到", timeout=300, img_url="checkmark.circle"
 
 [Mitm]
 hostname = sb.sb, *.sb.sb, linux.sb, *.linux.sb

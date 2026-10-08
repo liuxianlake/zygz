@@ -46,6 +46,20 @@
  * ⚠️ 性能：PoW 需要约 80 × 65536 次 SHA-256（纯 JS），iPhone 上大约
  *    10~60 秒。请把 cron/generic 的 timeout 设到 300 秒。这是 Cap 的设计
  *    目的（拖慢自动化），属正常现象，不是卡死。
+ *
+ * ── 2026-10-08 修订（★ 本次：Cap 请求换出口重试）───────────────────────
+ * 现象：昨天签到成功，今天日志停在
+ *       「cap 失败 -> 挑战请求失败: … Request timeout.」
+ * 根因：并非站点改机制，而是 **capjs.net 这个验证域名在当前出口时通时不通**
+ *       （实测直连 3 次失败 2 次，走代理 3 次全成功）。签到页请求走代理没问题，
+ *       但 Cap 验证域名按内置路由走了直连，于是间歇性超时。
+ * 对策：
+ *   ① cap 的 challenge / redeem 请求均做「换出口重试」——依次尝试
+ *      跟随内置路由 → PROXY 策略组 → 跟随内置路由（共 3 次）；
+ *   ② 插件新增「Cap 验证出口」参数（cap_node），可固定指定策略组/节点名；
+ *   ③ 因网络问题失败时，通知里会直接给出该怎么填。
+ * 另：站点签到地址已由 /signin/ 变为 /checkin/，脚本从表单 action 自动跟随，
+ *     无需改配置。
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
@@ -594,8 +608,17 @@ function capBuildProbe(ua) {
  * @param cb       function(errMsg, token)
  */
 function capFetchToken(endpoint, ua, siteOrigin, cb) {
-  function capHeaders(extra) {
-    var h = {
+  // Cap 验证服务（capjs.net）在国内直连时通时不通，一旦超时签到就会失败
+  // （2026-10-08 实测：直连 3 次里失败 2 次，走代理 3 次全成功）。
+  // 因此每次 cap 请求都做「换出口重试」，依次尝试：
+  //   跟随内置路由 → PROXY 策略组 → 跟随内置路由
+  // 若插件里配置了「Cap 验证出口」（cap_node），则全程固定使用它。
+  var CAP_TIMEOUT = 25000;
+  var userNode = String(arg.cap_node || "").trim();
+  var nodePlan = userNode ? [userNode, userNode, userNode] : [null, "PROXY", null];
+
+  function capHeaders() {
+    return {
       "User-Agent": ua || DEFAULT_UA,
       "Accept": "application/json, text/plain, */*",
       "Accept-Language": "zh-CN,zh;q=0.9",
@@ -603,15 +626,37 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
       "Origin": siteOrigin,
       "Referer": siteOrigin + "/"
     };
-    if (extra) { for (var k in extra) h[k] = extra[k]; }
-    return h;
   }
 
-  console.log("sb-checkin: [cap] 请求挑战 " + endpoint + "challenge");
-  $httpClient.post(
-    { url: endpoint + "challenge", headers: capHeaders(), body: "{}", "auto-cookie": false, timeout: 20000 },
-    function (err, resp, data) {
-      if (err) return cb("挑战请求失败: " + err);
+  /** 带出口重试的 POST；回调只在最终失败或成功时触发一次 */
+  function capPost(path, body, done) {
+    var attempt = 0;
+    function once() {
+      var node = nodePlan[Math.min(attempt, nodePlan.length - 1)];
+      var opts = {
+        url: endpoint + path,
+        headers: capHeaders(),
+        body: body,
+        "auto-cookie": false,
+        timeout: CAP_TIMEOUT
+      };
+      if (node) opts.node = node;
+      console.log("sb-checkin: [cap] POST " + path + "（第 " + (attempt + 1) + "/" + nodePlan.length +
+        " 次，出口：" + (node || "默认路由") + "）");
+      $httpClient.post(opts, function (err, resp, data) {
+        if (err && attempt < nodePlan.length - 1) {
+          attempt++;
+          console.log("sb-checkin: [cap] " + path + " 失败（" + err + "），换出口重试");
+          return once();
+        }
+        done(err, resp, data);
+      });
+    }
+    once();
+  }
+
+  capPost("challenge", "{}", function (err, resp, data) {
+      if (err) return cb("挑战请求失败（多次重试仍不通）: " + err);
       var code = statusOf(resp);
       var raw = String(data || "");
       if (code !== 200) return cb("挑战请求 HTTP " + code + " " + raw.slice(0, 120));
@@ -654,17 +699,8 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
       // 3) 兑换 token
       var payload = { token: ch.token, solutions: solutions };
       if (instr) payload.instr = instr;
-      console.log("sb-checkin: [cap] 提交兑换 " + endpoint + "redeem");
-      $httpClient.post(
-        {
-          url: endpoint + "redeem",
-          headers: capHeaders(),
-          body: JSON.stringify(payload),
-          "auto-cookie": false,
-          timeout: 30000
-        },
-        function (err2, resp2, data2) {
-          if (err2) return cb("兑换请求失败: " + err2);
+      capPost("redeem", JSON.stringify(payload), function (err2, resp2, data2) {
+          if (err2) return cb("兑换请求失败（多次重试仍不通）: " + err2);
           var code2 = statusOf(resp2);
           var raw2 = String(data2 || "");
           var r2 = null;
@@ -675,10 +711,8 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
           }
           console.log("sb-checkin: [cap] 已取得 cap-token");
           cb(null, r2.token);
-        }
-      );
-    }
-  );
+      });
+  });
 }
 
 /* ======================================================================
@@ -860,8 +894,13 @@ function main() {
   }
 
   // ---------- 第 1 步：GET 签到页 ----------
-  console.log("sb-checkin: 正在请求 " + url);
-  $httpClient.get(baseOptions(url), function (err, resp, data) {
+  /**
+   * 拉取签到页。站点曾把签到页由 /signin/ 改为 /checkin/，
+   * 若配置地址返回 404，会自动改用新路径再试一次（allowAltPath）。
+   */
+  function fetchCheckinPage(pageUrl, allowAltPath) {
+    console.log("sb-checkin: 正在请求 " + pageUrl);
+    $httpClient.get(baseOptions(pageUrl), function (err, resp, data) {
     if (err) {
       notify("❌ 请求失败（获取签到页）", String(err));
       console.log("sb-checkin: GET 失败 " + err);
@@ -884,9 +923,15 @@ function main() {
     }
 
     if (code === 404) {
+      // 路径可能已变更（如 /signin/ -> /checkin/），自动改试一次
+      var alt = String(pageUrl).replace(/\/signin\/?$/i, "/checkin/");
+      if (allowAltPath && alt !== pageUrl) {
+        console.log("sb-checkin: " + pageUrl + " 返回 404，自动改试 " + alt);
+        return fetchCheckinPage(alt, false);
+      }
       notify(
         "❌ 签到页不存在（HTTP 404）",
-        "GET " + url + " 返回 404。可能是接口路径变化或地区限制。\n" + brief(html)
+        "GET " + pageUrl + " 返回 404。可能是接口路径变化或地区限制。\n" + brief(html)
       );
       console.log("sb-checkin: GET 404");
       $done();
@@ -937,8 +982,8 @@ function main() {
     console.log("sb-checkin: 已获取 _csrf (" + csrf.length + " chars)");
 
     // 解析真实提交地址（站点改版时自动跟随）
-    var discovered = findSubmitAction(html, origin, url);
-    var target = discovered || url;
+    var discovered = findSubmitAction(html, origin, pageUrl);
+    var target = discovered || pageUrl;
     console.log("sb-checkin: 签发表单提交地址 = " + (discovered || "(未找到签到表单，回退配置地址)") + " -> " + target);
 
     // GET 模式（仅测试用）
@@ -962,9 +1007,13 @@ function main() {
     console.log("sb-checkin: 检测到 Cap 人机验证，端点 " + capEndpoint);
     capFetchToken(capEndpoint, ua, origin, function (capErr, capToken) {
       if (capErr) {
+        var isNetFail = /重试仍不通|timeout|Timeout/i.test(capErr);
+        var hint = isNetFail
+          ? "\n\n原因多半是「Cap 验证域名 capjs.net 当前出口不通」。可在插件设置里把「Cap 验证出口」填成你代理论坛用的策略组名（如 PROXY），保存后再试。"
+          : "";
         notify(
           "❌ 人机验证失败",
-          "无法获取 cap-token：" + capErr + "\n签到已中止（本次未提交）。"
+          "无法获取 cap-token：" + capErr + hint + "\n\n本次未提交签到。"
         );
         console.log("sb-checkin: cap 失败 -> " + capErr);
         $done();
@@ -972,7 +1021,10 @@ function main() {
       }
       doCheckin(target, csrf, capToken);
     });
-  });
+    });
+  }
+
+  fetchCheckinPage(url, true);
 }
 
 main();
