@@ -1,12 +1,34 @@
-#!name = 虎扑 App 去广告
-#!desc = 拦截虎扑广告接口 goblin.hupu.com/.../interfaceAd/getOther，本地 Mock 返回空广告列表（不请求广告服务器）
-#!author = liuxianlake
+#!name = 虎扑去广告（融合版）
+#!desc = 屏蔽开屏/信息流广告、首页推广位、我的页面冗余模块与各类横幅。改写自可莉(ZenmoFeiShi)版本：去掉 2024 年的旧脚本、全部改用复写实现，并修掉会让 App 白屏的返回体。
+#!author = liuxianlake (原始规则 ZenmoFeiShi)
 #!date = 2026-10-29
 #!loon_version = 3.5.1(983)
 #!tag = 去广告,虎扑
 
+[Argument]
+legoFilter = switch,true,type=boolean,tag=精简首页模块,desc=关闭后首页入口卡片保持原样；遇到首页白屏可先关掉这一项
+
 [Rewrite]
-response if ${url} ~= /^https?:\/\/goblin\.hupu\.com\/.+\/interfaceAd\/getOther/ then response.body.mock("json", `{"ad_code":-41,"show_type":0,"ads":[]}`, 200)
+# ① 开屏 / 信息流广告 —— 给结构完整的空广告 JSON
+#    不要用 {} 或空 body：虎扑客户端解析失败就是白屏，这是原版最大的坑
+response if ${url} ~= /^https?:\/\/goblin\.hupu\.com\/\d+\/[\d.]+\/interfaceAd\/getOther/ then response.body.mock("json", `{"ad_code":-41,"show_type":0,"ads":[]}`, 200)
+
+# ② 各类推广 / 榜单 / 红点接口 —— 统一返回 {}
+#    原版对 gallery/getmod2 用的是 reject-200（空 body），是最可疑的白屏来源，这里改成 {}
+response if ${url} ~= /^https?:\/\/fairy\.mobileapi\.hupu\.com\/gallery\/getmod2/ then reject_dict(200)
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bplapi\/banner\/getLocationBanners/ then reject_dict(200)
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bplcommentapi\/bpl\/score_tab\/groups/ then reject_dict(200)
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bplapi\/reddot\/v1\/app\/getReddot/ then reject_dict(200)
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/search\/v2\/(hintkeylist|hotkeylist)/ then reject_dict(200)
+response if ${url} ~= /^https?:\/\/bbs\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/(bbsallapi\/tag\/v1\/heatTag|bbsrankapi\/v1\/rating\/list)/ then reject_dict(200)
+
+# ③ 正常响应里精准摘字段 —— 保留其余内容，比整条 reject 安全得多
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/buffer\/hotList/ then response.json.delete("result.topBanner")
+response if ${url} ~= /^https?:\/\/fairy\.mobileapi\.hupu\.com\/mang\/preview\/banners/ then response.json.delete("data")
+response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bplapi\/user\/v1\/more/ then response.json.delete("result.vipInfo")
+
+# ④ 首页模块精简 —— 用 jq 复刻原脚本逻辑：剔除指定入口 + 含「我的应用」的卡片
+response if ${legoFilter} == true && ${url} ~= /^https?:\/\/bbs\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bbsallapi\/lego\/data/ then response.json.jq(`if .data.cards then .data.cards |= (map(if (.code == "multiIcon" and (.components | type) == "array") then .components = (.components | map(select((.data.title // "") as $t | ["个性换肤","专家预测","邀请好友","版主中心","JRs战术板","草稿箱","58同城"] | index($t) | not))) else . end) | map(select((((.components // []) | (if type == "array" then . else [] end) | map(.data.title // "")) | index("我的应用")) == null))) else . end`)
 
 [Mitm]
-hostname = goblin.hupu.com
+hostname = games.mobileapi.hupu.com, fairy.mobileapi.hupu.com, bbs.mobileapi.hupu.com, goblin.hupu.com
