@@ -1,6 +1,7 @@
 #!name = 虎扑去广告（融合版）
 #!desc = 屏蔽开屏/信息流广告、首页推广位、我的页面冗余模块与各类横幅。改写自可莉(ZenmoFeiShi)版本：去掉 2024 年的旧脚本、全部改用复写实现，并修掉会让 App 白屏的返回体。
 #!author = liuxianlake (原始规则 ZenmoFeiShi)
+#!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1793279058160_hupu-icon.png
 #!date = 2026-10-29
 #!loon_version = 3.5.1(983)
 #!tag = 去广告,虎扑
