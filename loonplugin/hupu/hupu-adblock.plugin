@@ -1,0 +1,12 @@
+#!name = 虎扑 App 去广告
+#!desc = 拦截虎扑广告接口 goblin.hupu.com/.../interfaceAd/getOther，本地 Mock 返回空广告列表（不请求广告服务器）
+#!author = liuxianlake
+#!date = 2026-10-29
+#!loon_version = 3.5.1(983)
+#!tag = 去广告,虎扑
+
+[Rewrite]
+response if ${url} ~= /^https?:\/\/goblin\.hupu\.com\/.+\/interfaceAd\/getOther/ then response.body.mock("json", `{"ad_code":-41,"show_type":0,"ads":[]}`, 200)
+
+[Mitm]
+hostname = goblin.hupu.com
