@@ -1,5 +1,5 @@
 #!name = sxsy自动签到
-#!desc = sxsy 论坛自动签到（k_misign 数学题自动计算）。域名会变：换域名只需修改「站点域名」参数，无需改代码
+#!desc = sxsy 论坛自动签到（Discuz k_misign 数学题自动计算）。域名会变：Cookie 捕获不再依赖域名参数，签到会自动在「参数域名 / 最近捕获域名」间择优
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
 #!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786667308789_photo_2025-02-22_19-18-22.jpg
@@ -9,7 +9,7 @@
 #!type = normal
 
 [Argument]
-site_host = input,"sxsy45.com",tag=站点域名,desc=当前论坛域名（数字经常变，如 sxsy46.com），只填域名，不要带 https://
+site_host = input,"sxsy33.com",tag=站点域名,desc=当前论坛域名。可填多个（逗号分隔）做自动择优，如 sxsy33.com,sxsy45.com。最新地址见 https://sxsy.pw
 req_timeout = input,"20000",tag=请求超时(毫秒),desc=单次请求超时，默认 20000。站点很慢可调到 30000
 cron_expr = input,"0 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:00
 
@@ -20,12 +20,12 @@ cron_expr = input,"0 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日
 [Host]
 
 [Script]
-# 1. 浏览论坛时自动捕获/刷新 Cookie（域名变化后重新登录一次即可自动更新）
-request if ${url} ~= ${site_host} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy-cookie.js") with tag="sxsy Cookie捕获", timeout=10
-# 2. 定时自动签到（formhash → 数学题 → 提交；单请求 20s 超时 + 3 次重试，故脚本超时放到 180s）
+# 1. 浏览论坛时自动捕获/刷新 Cookie —— 用正则匹配任意 sxsy/sxyx 域名，换域名后无需改参数也能捕获
+request if ${url} ~= /^https?:\/\/(?:[\w-]+\.)*(?:sxsy|sxyx)[\w-]*\.(?:com|org|net|pw|cc|top|xyz)/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy-cookie.js") with tag="sxsy Cookie捕获", timeout=10
+# 2. 定时自动签到（域名择优 → formhash → 数学题 → 提交；单请求 20s 超时 + 3 次重试，故脚本超时放到 180s）
 cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${req_timeout}}) with tag="sxsy自动签到", timeout=180
 # 3. 手动签到（测试用）
 generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${req_timeout}}) with tag="sxsy手动签到", timeout=180, img_url="checkmark.circle"
 
 [Mitm]
-hostname = sxsy*.com, *.sxsy*.com
+hostname = sxsy*.com, *.sxsy*.com, sxsy*.org, *.sxsy*.org, sxyx*.org, *.sxyx*.org
