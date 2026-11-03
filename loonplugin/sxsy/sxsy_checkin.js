@@ -2,6 +2,15 @@
  * @name sxsy 自动签到
  * @description sxsy 论坛（Discuz! k_misign 签到插件）自动签到，数学题自动计算
  *
+ * 2026-11-03 修复「提示信息」误判（取不到数学题）：
+ * - 【现象】formhash 正常、HTTP 200，但「取题目」返回 Discuz「提示信息」页，日志里全是 CSS，
+ *   看不到站点真正说的话，脚本直接判失败。
+ * - 【根因】① plainText 没剔除 <style>，CSS 把提示正文挤掉了；② 只认 `var q="..."` 一种题目格式，
+ *   取不到就直接失败；③ 「已签到」只认「已经签到/已签到/签到过了」，认不出「签过到」「明天再来」等说法。
+ * - 【修复】① 新增 discuzMessage() 专抓提示框正文（messagetext / alert_* / msgbox）；② 取题目改为三段兜底：
+ *   format=text → format=text&inajax=1 → 签到页 HTML（顺带刷新 formhash 与 mathv）；
+ *   ③ 提示文案分类：已签到 / 未登录 / 验证串不符 / 其他，都给出人话通知；④ 失败通知里带上站点原话。
+ *
  * 2026-10-30 域名变更修复（sxsy45.com → sxsy33.com）：
  * - 【根因】域名换了，但插件参数「站点域名」还停在旧域名 → 首页请求打到已 301 的旧站，签到必失败。
  * - 现在支持「域名择优」：候选 = 参数里的域名（可逗号填多个）+ Cookie 捕获脚本记录的最近登录域名，
@@ -41,6 +50,11 @@ var MAX_ATTEMPTS = 3;
 // 域名探测只试 1 次、超时收紧，避免旧域名挂掉时把整次执行拖爆
 var PROBE_TIMEOUT = Math.min(REQ_TIMEOUT, 12000);
 var MAX_PROBE = 3;
+
+// 站点提示文案分类（Discuz 各版本说法不一，尽量覆盖）
+var RE_ALREADY = /(已经?签\s*过?到|已签\s*到|今日已签|今天已签|重复签|明天再来|无需重复|签过到了)/;
+var RE_NEED_LOGIN = /(请先登录|需要先登录|您还未登录|尚未登录|未登录|游客|请登录后)/;
+var RE_BAD_FORM = /(来路不正确|表单验证串|验证串不符|非法请求|请从正常途径)/;
 
 function normalizeHost(s) {
   return String(s || "")
@@ -155,13 +169,47 @@ function cleanCdata(text) {
   return m ? m[1] : String(text || "");
 }
 
-function plainText(html) {
-  return cleanCdata(html)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(Number(n)); })
+    .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
     .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+// 去标签取纯文本：先把 <style>/<script> 整段删掉，否则 CSS 会盖住正文
+function plainText(html) {
+  return decodeEntities(
+    cleanCdata(html)
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<[^>]*>/g, " ")
+  ).replace(/\s+/g, " ").trim();
+}
+
+// 抓 Discuz「提示信息」页的正文（手机版常见 messagetext / alert_info / msgbox）
+function discuzMessage(html) {
+  var b = String(html || "");
+  var pats = [
+    /<div[^>]*id=["']messagetext["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class=["'][^"']*(?:alert_info|alert_error|alert_right)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class=["'][^"']*msgbox[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<p[^>]*class=["'][^"']*alert[^"']*["'][^>]*>([\s\S]*?)<\/p>/i
+  ];
+  for (var i = 0; i < pats.length; i++) {
+    var m = b.match(pats[i]);
+    if (m) {
+      var t = plainText(m[1]);
+      if (t) return t;
+    }
+  }
+  // 兜底：取 <title> 之后的前 160 字（此时 CSS 已被 plainText 剔掉）
+  return plainText(b).slice(0, 160);
 }
 
 // 被 Discuz 踢到登录页的特征
@@ -173,7 +221,26 @@ function isLoginPage(body) {
 }
 
 function hasFormhash(body) {
-  return /['"]?formhash['"]?\s*[:=]\s*["']?[0-9a-zA-Z]{6,}/.test(String(body || ""));
+  return !!pickFormhash(body);
+}
+
+// formhash 提取：兼容 ① URL/JS 里的 formhash=xxx、formhash:'xxx'
+// ② 表单隐藏域 <input name="formhash" value="xxx">（顺序可能颠倒）
+function pickFormhash(body) {
+  var b = String(body || "");
+  var m = b.match(/['"]?formhash['"]?\s*[:=]\s*["']?([0-9a-zA-Z]{6,})/);
+  if (m) return m[1];
+  m = b.match(/name=["']formhash["'][^>]*?value=["']([0-9a-zA-Z]{6,})["']/i);
+  if (m) return m[1];
+  m = b.match(/value=["']([0-9a-zA-Z]{6,})["'][^>]*?name=["']formhash["']/i);
+  if (m) return m[1];
+  return "";
+}
+
+function pickMathv(headers) {
+  var sc = (headers && (headers["set-cookie"] || headers["Set-Cookie"])) || "";
+  var m = String(sc).match(/([a-z0-9_]*k_misign_mathv=[^;, ]+)/i);
+  return m ? m[1] : "";
 }
 
 // 失败提示里带上最后一次的错误原因，避免只看到"网络错误"
@@ -181,6 +248,19 @@ function failReason(r) {
   if (!r) return "无响应";
   if (!r.ok) return r.error;
   return "HTTP " + r.status;
+}
+
+// 从页面里找数学题（兼容 var q="…"、页面文本里的 3+5=? 两种写法）
+function extractQuestion(html) {
+  var b = String(html || "");
+  var m = b.match(/var\s+q\s*=\s*["']([^"']+)["']/i);
+  if (m) return m[1];
+  m = b.match(/var\s+(?:question|mathq|math)\s*=\s*["']([^"']+)["']/i);
+  if (m) return m[1];
+  var t = plainText(b);
+  m = t.match(/(\d+)\s*([+\-×xX*÷\/])\s*(\d+)\s*=?\s*[?？]/);
+  if (m) return m[0];
+  return "";
 }
 
 /**
@@ -221,6 +301,53 @@ async function pickHost() {
   return { tried: tried };
 }
 
+/**
+ * 取数学题（三段兜底）。返回 { question, formhash, mathv, message }
+ * 依次尝试：
+ *   1) format=text（历史可用格式）
+ *   2) format=text & inajax=1（部分版本只认带 inajax 的请求）
+ *   3) 签到页 HTML（顺带刷新 formhash / mathv）
+ */
+async function fetchQuestion(host, formhash) {
+  var out = { question: "", formhash: formhash, mathv: "", message: "" };
+  var base = host + "/plugin.php?id=k_misign:sign&operation=qiandao";
+
+  var plans = [
+    { url: base + "&format=text&formhash=" + formhash, label: "取题目" },
+    { url: base + "&format=text&inajax=1&formhash=" + formhash, label: "取题目(inajax)" },
+    { url: host + "/plugin.php?id=k_misign:sign&formhash=" + formhash, label: "取签到页" }
+  ];
+
+  for (var i = 0; i < plans.length; i++) {
+    var r = await get(plans[i].url, "", plans[i].label);
+    if (!r || !r.ok) {
+      out.message = out.message || ("请求失败：" + failReason(r));
+      continue;
+    }
+
+    // 任何一段里拿到的 mathv / formhash 都留着（提交时要用）
+    if (!out.mathv) out.mathv = pickMathv(r.headers);
+    var fh = pickFormhash(r.body);
+    if (fh) out.formhash = fh;
+
+    var q = extractQuestion(r.body);
+    if (q) {
+      out.question = q;
+      console.log("sxsy-checkin: 题目来源 " + plans[i].label + " → " + q);
+      return out;
+    }
+
+    var msg = discuzMessage(r.body);
+    console.log("sxsy-checkin: " + plans[i].label + " 未取到题目，站点提示：" + (msg || "（空）"));
+    if (msg) out.message = msg;
+
+    // 明确结论就不必再试下一段，省时间也避免无谓请求
+    if (RE_ALREADY.test(msg) || RE_NEED_LOGIN.test(msg)) return out;
+  }
+
+  return out;
+}
+
 async function main() {
   var t0 = Date.now();
   console.log("sxsy-checkin: 开始执行，候选域名 [" + hosts.join(", ") + "]，超时 " +
@@ -254,58 +381,45 @@ async function main() {
   // 1. formhash（探测页已拿到，直接用）
   // ===============================
   var r1 = picked.resp;
-  // formhash 提取：引号可选（兼容 'formhash':'x'、var formhash = "x"、以及 URL 里 &formhash=x）
-  var formhashMatch = String(r1.body).match(/['"]?formhash['"]?\s*[:=]\s*["']?([0-9a-zA-Z]{6,})/);
-  if (!formhashMatch) {
+  var formhash = pickFormhash(r1.body);
+  if (!formhash) {
     notify("失败", "站点 " + siteHost + " 响应异常，未找到 formhash（详见日志）");
     console.log("sxsy-checkin: 未找到 formhash，HTTP " + r1.status);
     return;
   }
-  var formhash = formhashMatch[1];
   console.log("sxsy-checkin: formhash 已获取 (" + formhash.length + " chars)");
 
   // ===============================
-  // 2. 获取数学题
+  // 2. 获取数学题（三段兜底）
   // ===============================
-  var questionUrl = host + "/plugin.php?id=k_misign:sign" +
-    "&operation=qiandao" +
-    "&format=text" +
-    "&formhash=" + formhash;
+  var qr = await fetchQuestion(host, formhash);
+  formhash = qr.formhash || formhash;
 
-  var r2 = await get(questionUrl, "", "取题目");
-  if (!r2 || !r2.ok) {
-    notify("获取签到页失败", failReason(r2));
-    console.log("sxsy-checkin: 取题目失败，耗时 " + (Date.now() - t0) + "ms");
+  if (!qr.question) {
+    var msg = qr.message || "";
+    if (RE_NEED_LOGIN.test(msg)) {
+      notify("Cookie 可能已失效", msg);
+      return;
+    }
+    if (RE_ALREADY.test(msg)) {
+      notify("今日已签到", msg);
+      return;
+    }
+    if (RE_BAD_FORM.test(msg)) {
+      notify("签到被拒（验证串不符）", (msg || "") + "｜站点可能改了签到请求格式，把这条日志发给作者");
+      console.log("sxsy-checkin: 验证串类失败，耗时 " + (Date.now() - t0) + "ms");
+      return;
+    }
+    notify("取不到数学题", (msg || "站点没有返回可识别的题目") + "（详见日志）");
+    console.log("sxsy-checkin: 未取到题目，耗时 " + (Date.now() - t0) + "ms");
     return;
   }
 
-  // mathv Cookie：前缀随域名/重装可能变化（旧版写死 u52q_2132_），泛化匹配
-  var setCookie = r2.headers["set-cookie"] || r2.headers["Set-Cookie"] || "";
-  var mathvMatch = String(setCookie).match(/([a-z0-9_]*k_misign_mathv=[^;, ]+)/i);
-  var mathv = mathvMatch ? mathvMatch[1] : "";
-  if (!mathv) {
-    console.log("sxsy-checkin: 未发现 mathv Cookie（可能已签到过，继续尝试提交）");
-  }
+  var question = qr.question;
+  var mathv = qr.mathv || "";
+  if (!mathv) console.log("sxsy-checkin: 未发现 mathv Cookie（继续尝试提交）");
 
-  var questionMatch = String(r2.body).match(/var q="([^"]+)"/);
-  if (!questionMatch) {
-    if (isLoginPage(r2.body)) {
-      notify("Cookie 已失效", "签到页要求重新登录，请用浏览器打开论坛登录一次");
-      return;
-    }
-    var pageText = plainText(r2.body).slice(0, 120);
-    if (/已经签到|已签到|签到过了/.test(r2.body)) {
-      notify("今日已签到", "无需重复签到");
-      console.log("sxsy-checkin: 今日已签到 | " + pageText);
-      return;
-    }
-    notify("失败", "没有找到数学题：" + (pageText || "页面为空") + "（详见日志）");
-    console.log("sxsy-checkin: 未找到数学题，HTTP " + r2.status + " | " + pageText);
-    return;
-  }
-  var question = questionMatch[1];
-
-  var mathMatch = question.match(/(\d+)\s*([+\-×x*÷\/])\s*(\d+)/);
+  var mathMatch = question.match(/(\d+)\s*([+\-×xX*÷\/])\s*(\d+)/);
   if (!mathMatch) {
     notify("数学题格式未知", question);
     console.log("sxsy-checkin: 无法解析题目 " + question);
@@ -318,7 +432,7 @@ async function main() {
   var answer;
   if (operator === "+") answer = num1 + num2;
   else if (operator === "-") answer = num1 - num2;
-  else if (operator === "×" || operator === "x" || operator === "*") answer = num1 * num2;
+  else if (operator === "×" || operator === "x" || operator === "X" || operator === "*") answer = num1 * num2;
   else answer = num2 === 0 ? 0 : Math.floor(num1 / num2);
   console.log("sxsy-checkin: 题目 " + question + " = " + answer);
 
@@ -340,18 +454,23 @@ async function main() {
     return;
   }
 
-  var result = plainText(r3.body);
+  var result = plainText(r3.body) || discuzMessage(r3.body);
   console.log("sxsy-checkin: 签到结果 HTTP " + r3.status + " | " + result +
     " | 总耗时 " + (Date.now() - t0) + "ms");
 
-  if (/已经签到|已签到|无需重复/.test(result)) {
+  if (RE_ALREADY.test(result)) {
     notify("今日已签到", result.slice(0, 80));
+    return;
+  }
+  if (RE_NEED_LOGIN.test(result)) {
+    notify("Cookie 已失效", result.slice(0, 80));
     return;
   }
   if (result.indexOf("失败") !== -1 ||
       result.indexOf("错误") !== -1 ||
       result.indexOf("失效") !== -1 ||
-      result.indexOf("不存在") !== -1) {
+      result.indexOf("不存在") !== -1 ||
+      RE_BAD_FORM.test(result)) {
     notify("签到失败", result.slice(0, 100) || "未知错误");
   } else {
     notify("签到成功", result.slice(0, 100) || "签到请求完成");
