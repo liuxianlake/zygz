@@ -24,8 +24,10 @@
  *   1. 域名择优 → 首页取 formhash
  *   2. 打开签到页 → 判断「今日已签到 / 未签到」，同时抓出验证码图片地址
  *   3. 未签到且配了 OCR：取图(Uint8Array) → Base64 → POST 给 VPS → 拿到 4 位码 → 提交
- *      失败(code 11)就换一张图重试，最多 ocr_retry 次（90% 单次成功率 × 3 次 ≈ 99.9%）
- *   4. 已签到 → 静默；OCR 没配/全失败 → 推可点击通知（openUrl 直达签到页），永不漏签
+ *      **同一张图依次试「原样 / 全大写 / 全小写」**：站点疑似区分大小写，而 OCR 习惯输出小写；
+ *      全部失败才换一张新图，最多 ocr_retry 张、总提交次数上限 2×ocr_retry
+ *   4. 已签到 → 静默；OCR 没配/全失败 → 推可点击通知（openUrl 直达签到页）+ **附图**（mediaUrl 显示验证码原图），
+ *      方便一眼看出 OCR 是读错了还是大小写不匹配
  *
  * 【Loon 参数】ocr_url（如 https://64.110.114.30:8443/ocr）、ocr_token、ocr_retry
  *
@@ -82,10 +84,32 @@ var cookie = $persistentStore.read(COOKIE_KEY) || $persistentStore.read(LEGACY_C
 var userAgent = $persistentStore.read(UA_KEY) ||
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1";
 
-function notify(subtitle, content, openUrl) {
-  var opts = {};
-  if (openUrl) opts.openUrl = openUrl;
-  $notification.post("sxsy签到", subtitle, content || "", opts);
+// 通知：第 3 参可传 openUrl 字符串，或 {openUrl, mediaUrl} 对象
+function notify(subtitle, content, opts) {
+  var o = {};
+  if (typeof opts === "string") {
+    if (opts) o.openUrl = opts;
+  } else if (opts) {
+    if (opts.openUrl) o.openUrl = opts.openUrl;
+    if (opts.mediaUrl) o.mediaUrl = opts.mediaUrl;
+  }
+  $notification.post("sxsy签到", subtitle, content || "", o);
+}
+
+// 按文件头判断图片类型（通知的 mediaUrl 需要正确的 MIME）
+function imageMime(b) {
+  if (!b || b.length < 4) return "image/png";
+  if (b[0] === 0x89 && b[1] === 0x50) return "image/png";
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x47 && b[1] === 0x49) return "image/gif";
+  if (b[0] === 0x52 && b[1] === 0x49) return "image/webp";
+  return "image/png";
+}
+
+// 把验证码图片转成通知可直接显示的 Data URI
+function toDataUri(bytes) {
+  if (!bytes || !bytes.length) return "";
+  return "data:" + imageMime(bytes) + ";base64," + bytesToBase64(bytes);
 }
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -312,7 +336,8 @@ function parseStatus(html) {
   var out = { signed: null, streak: "", total: "" };
   var ms = t.match(/连续签到[^\d]{0,8}(\d+)/) || t.match(/连续[^\d]{0,4}(\d+)\s*天/);
   if (ms) out.streak = ms[1];
-  var mt = t.match(/累计签到[^\d]{0,8}(\d+)/) || t.match(/累计[^\d]{0,4}(\d+)\s*天/);
+  var mt = t.match(/累计签到[^\d]{0,12}(\d+)/) || t.match(/累计[^\d]{0,8}(\d+)\s*天/) ||
+    t.match(/累计[^\d]{0,12}(\d+)/);
   if (mt) out.total = mt[1];
   if (/今日未签到|今天未签到|尚未签到|还未签到/.test(t)) out.signed = false;
   else if (/今日已签到|今天已签到|已签到/.test(t)) out.signed = true;
@@ -387,10 +412,17 @@ async function autoSign(host, formhash, captchaUrls) {
     if (s && reasons.indexOf(s) < 0) reasons.push(s);
   }
 
-  for (var i = 1; i <= OCR_RETRY; i++) {
+  // 每次提交都算一次「试错」，给个总上限，避免把站点惹毛
+  var MAX_SUBMIT = OCR_RETRY * 2;
+  var submitted = 0;
+  var lastImg = null;
+  var lastCode = "";
+
+  for (var i = 1; i <= OCR_RETRY && submitted < MAX_SUBMIT; i++) {
     var imgUrl = withCacheBuster(captchaUrls[(i - 1) % captchaUrls.length]);
     var img = await getBytes(imgUrl);
     if (!img.ok) { addReason("取验证码图片失败"); continue; }
+    lastImg = img.bytes;
 
     var ocr = await askOcr(img.bytes);
     if (!ocr.ok) {
@@ -400,22 +432,43 @@ async function autoSign(host, formhash, captchaUrls) {
       continue;
     }
     if (!ocr.text) { addReason("OCR 返回空"); continue; }
+    lastCode = ocr.text;
 
-    var res = await submitSign(host, formhash, ocr.text);
-    if (!res.ok) { addReason(res.error); continue; }
+    // 该插件疑似区分大小写（页面截图里是大写，OCR 习惯输出小写）
+    // 同一张图依次试：原样 → 全大写 → 全小写，去重后逐个提交
+    var variants = [];
+    [ocr.text, ocr.text.toUpperCase(), ocr.text.toLowerCase()].forEach(function (v) {
+      if (v && variants.indexOf(v) < 0) variants.push(v);
+    });
+    console.log("sxsy-checkin: 第 " + i + " 张图 OCR=" + ocr.text + "，变体 [" + variants.join(", ") + "]");
 
-    if (res.json && res.json.code === 0) {
-      console.log("sxsy-checkin: 第 " + i + " 次识别成功，验证码 " + ocr.text);
-      return { done: true, json: res.json, try: i, code: ocr.text };
+    for (var k = 0; k < variants.length && submitted < MAX_SUBMIT; k++) {
+      var code = variants[k];
+      submitted++;
+      var res = await submitSign(host, formhash, code);
+      if (!res.ok) { addReason(res.error); continue; }
+
+      if (res.json && res.json.code === 0) {
+        console.log("sxsy-checkin: 第 " + i + " 张图、变体 " + code + " 提交成功");
+        return { done: true, json: res.json, try: i, code: code, bytes: img.bytes };
+      }
+      var msg = (res.json && res.json.msg) || "";
+      if (RE_ALREADY.test(msg)) return { done: true, json: res.json, already: true, bytes: img.bytes };
+
+      addReason(msg || "签到未成功");
+      console.log("sxsy-checkin: 变体 " + code + " 失败（" + (msg || "无 msg") + "）");
+      await sleep(600);
     }
-    var msg = (res.json && res.json.msg) || "";
-    if (RE_ALREADY.test(msg)) return { done: true, json: res.json, already: true };
-    addReason(msg || "签到未成功");
-    console.log("sxsy-checkin: 第 " + i + " 次失败（" + (msg || "无 msg") + "），换图重试");
-    await sleep(800);
   }
-  // 优先展示第一次（通常最有信息量）的失败原因
-  return { done: false, reason: reasons[0] || reasons.join("；") || "识别失败" };
+
+  // 优先展示第一次（通常最有信息量）的失败原因；带上最后一张图和 OCR 结果，便于人工核对
+  return {
+    done: false,
+    reason: reasons[0] || reasons.join("；") || "识别失败",
+    bytes: lastImg,
+    code: lastCode,
+    tries: submitted
+  };
 }
 
 function successNotify(json, extra, t0) {
@@ -497,16 +550,25 @@ async function main() {
     return;
   }
 
-  // ---- 兜底：推可点击通知，绝不漏签 ----
+  // ---- 兜底：推可点击通知 + 附上验证码图片（便于一眼看出 OCR 读得对不对） ----
   var why = result.reason || "未知原因";
   var detail = [];
   if (st.streak) detail.push("连续 " + st.streak + " 天");
+  var extra = "";
+  if (result.code) extra += "｜OCR 读到：" + result.code;
+  if (result.tries) extra += "（共试 " + result.tries + " 次）";
+
+  var opts = { openUrl: signPageUrl };
+  var uri = toDataUri(result.bytes);
+  if (uri) opts.mediaUrl = uri;
+
   notify(
     "自动签到没成功",
-    "原因：" + why + (detail.length ? "｜" + detail.join("，") : "") + "｜点此手动签一下",
-    signPageUrl
+    "原因：" + why + (detail.length ? "｜" + detail.join("，") : "") + extra + "｜点此手动签一下",
+    opts
   );
-  console.log("sxsy-checkin: 自动签到失败（" + why + "），耗时 " + (Date.now() - t0) + "ms");
+  console.log("sxsy-checkin: 自动签到失败（" + why + "），耗时 " + (Date.now() - t0) + "ms" +
+    (uri ? "｜已附图 " + uri.length + " 字节" : ""));
 }
 
 if (!hosts.length) {
