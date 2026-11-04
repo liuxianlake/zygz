@@ -84,6 +84,50 @@ var cookie = $persistentStore.read(COOKIE_KEY) || $persistentStore.read(LEGACY_C
 var userAgent = $persistentStore.read(UA_KEY) ||
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1";
 
+// ---------- Cookie 罐 ----------
+// 验证码答案很可能是随 Set-Cookie 下发的（Discuz seccode 的经典做法）。
+// 早先版本忽略 Set-Cookie，导致「我们看到的图」和「服务器认的答案」不是同一张 → 永远 code:11。
+var cookieJar = {};
+
+function mergeSetCookie(headers) {
+  if (!headers) return;
+  var sc = headers["set-cookie"] || headers["Set-Cookie"];
+  if (!sc) return;
+  var list = (typeof sc === "string") ? [sc] : sc;
+  for (var i = 0; i < list.length; i++) {
+    // 一条 header 里可能塞了多个 Set-Cookie，按 "xxx=, yyy=" 拆分
+    var parts = String(list[i]).split(/,(?=\s*[A-Za-z0-9_\-]+=)/);
+    for (var j = 0; j < parts.length; j++) {
+      var first = parts[j].split(";")[0].trim();
+      var eq = first.indexOf("=");
+      if (eq <= 0) continue;
+      var name = first.slice(0, eq).trim();
+      var value = first.slice(eq + 1).trim();
+      if (name) cookieJar[name] = value;
+    }
+  }
+}
+
+// 组装 Cookie 头：基础 Cookie + 新接住的（新值覆盖旧值）+ 额外指定的
+function cookieHeader(extra) {
+  var map = {};
+  String(cookie || "").split(";").forEach(function (p) {
+    var eq = p.indexOf("=");
+    if (eq > 0) map[p.slice(0, eq).trim()] = p.slice(eq + 1).trim();
+  });
+  for (var k in cookieJar) map[k] = cookieJar[k];
+  var out = [];
+  for (var n in map) out.push(n + "=" + map[n]);
+  if (extra) out.push(extra);
+  return out.join("; ");
+}
+
+function jarNames() {
+  var arr = [];
+  for (var k in cookieJar) arr.push(k);
+  return arr;
+}
+
 // 通知：第 3 参可传 openUrl 字符串，或 {openUrl, mediaUrl} 对象
 function notify(subtitle, content, opts) {
   var o = {};
@@ -139,7 +183,7 @@ function baseHeaders(url, extra) {
     "Referer": originOf(url) + "/index.php?mobile=2",
     "Accept": "text/html,application/json,text/javascript,image/*,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-    "Cookie": String(cookie)
+    "Cookie": cookieHeader()
   };
   if (extra) for (var k in extra) h[k] = extra[k];
   return h;
@@ -147,10 +191,11 @@ function baseHeaders(url, extra) {
 
 // ---------- HTTP ----------
 
-function rawGet(url, extraCookie, timeout) {
+function rawGet(url, extraCookie, timeout, referer) {
   return new Promise(function (resolve) {
     var headers = baseHeaders(url);
-    if (extraCookie) headers["Cookie"] = String(cookie) + ";" + extraCookie;
+    if (referer) headers["Referer"] = referer;
+    if (extraCookie) headers["Cookie"] = cookieHeader(extraCookie);
     var started = Date.now();
     $httpClient.get(
       { url: url, headers: headers, timeout: timeout || REQ_TIMEOUT, "auto-redirect": true, "auto-cookie": false },
@@ -160,8 +205,10 @@ function rawGet(url, extraCookie, timeout) {
           console.log("sxsy-checkin: GET 失败(" + cost + "ms) " + error + " | " + url);
           resolve({ ok: false, error: String(error), cost: cost });
         } else {
+          var hs = (response && response.headers) || {};
+          mergeSetCookie(hs);
           console.log("sxsy-checkin: GET 完成(" + cost + "ms) HTTP " + (response ? response.status : 0) + " | " + url);
-          resolve({ ok: true, status: response ? response.status : 0, headers: (response && response.headers) || {}, body: String(body || ""), cost: cost });
+          resolve({ ok: true, status: response ? response.status : 0, headers: hs, body: String(body || ""), cost: cost });
         }
       }
     );
@@ -169,12 +216,14 @@ function rawGet(url, extraCookie, timeout) {
 }
 
 // 取图片：binary-mode 让 Loon 以 Uint8Array 返回，才是真正的字节
-function getBytes(url) {
+function getBytes(url, referer) {
   return new Promise(function (resolve) {
+    var headers = baseHeaders(url, { "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" });
+    if (referer) headers["Referer"] = referer;
     $httpClient.get(
       {
         url: url,
-        headers: baseHeaders(url, { "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" }),
+        headers: headers,
         timeout: REQ_TIMEOUT,
         "auto-redirect": true,
         "auto-cookie": false,
@@ -185,9 +234,15 @@ function getBytes(url) {
           console.log("sxsy-checkin: 取图失败 " + error + " | " + url);
           return resolve({ ok: false, error: String(error) });
         }
+        var hs = (response && response.headers) || {};
+        var before = jarNames().length;
+        mergeSetCookie(hs);
+        var after = jarNames().length;
+
         var len = data && data.length !== undefined ? data.length : 0;
-        console.log("sxsy-checkin: 取图完成 HTTP " + (response ? response.status : 0) + "，" + len + " 字节");
-        resolve({ ok: len > 0, bytes: data, len: len });
+        console.log("sxsy-checkin: 取图完成 HTTP " + (response ? response.status : 0) + "，" + len +
+          " 字节" + (after > before ? "，新 Cookie " + (after - before) + " 个" : ""));
+        resolve({ ok: len > 0, bytes: data, len: len, headers: hs });
       }
     );
   });
@@ -204,8 +259,10 @@ function rawPost(url, formBody, referer) {
           console.log("sxsy-checkin: POST 失败 " + error + " | " + formBody);
           return resolve({ ok: false, error: String(error) });
         }
+        var hs = (response && response.headers) || {};
+        mergeSetCookie(hs);
         console.log("sxsy-checkin: POST 完成 HTTP " + (response ? response.status : 0) + " | " + formBody);
-        resolve({ ok: true, status: response ? response.status : 0, body: String(body || "") });
+        resolve({ ok: true, status: response ? response.status : 0, body: String(body || ""), headers: hs });
       }
     );
   });
@@ -417,12 +474,19 @@ async function autoSign(host, formhash, captchaUrls) {
   var submitted = 0;
   var lastImg = null;
   var lastCode = "";
+  var signPageRef = "https://" + host + "/plugin.php?id=" + PLUGIN_ID + ":index";
 
   for (var i = 1; i <= OCR_RETRY && submitted < MAX_SUBMIT; i++) {
-    var imgUrl = withCacheBuster(captchaUrls[(i - 1) % captchaUrls.length]);
-    var img = await getBytes(imgUrl);
+    var rawUrl = captchaUrls[(i - 1) % captchaUrls.length];
+    // 第一张必须用页面上的原地址（不加缓存参数）：换一张图就等于换了一个验证码，
+    // 而服务器认的答案可能绑定在页面那一次生成的图上
+    var imgUrl = (i === 1) ? rawUrl : withCacheBuster(rawUrl);
+    var img = await getBytes(imgUrl, signPageRef);
     if (!img.ok) { addReason("取验证码图片失败"); continue; }
     lastImg = img.bytes;
+    if (i === 1) {
+      console.log("sxsy-checkin: Cookie 罐 " + jarNames().length + " 项 [" + jarNames().join(", ") + "]");
+    }
 
     var ocr = await askOcr(img.bytes);
     if (!ocr.ok) {
