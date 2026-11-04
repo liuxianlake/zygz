@@ -1,5 +1,5 @@
 #!name = sxsy自动签到
-#!desc = sxsy 论坛自动签到（Discuz k_misign 数学题自动计算）。域名会变：Cookie 捕获不再依赖域名参数，签到会自动在「参数域名 / 最近捕获域名」间择优
+#!desc = sxsy 论坛自动签到（站点改用 sx_signin 插件 + 图片验证码）。脚本抓图 → 发给自己 VPS 上的 ddddocr 识别 → 自动提交，失败换图重试；OCR 没配或全失败时推可点击通知兜底，绝不漏签
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
 #!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786667308789_photo_2025-02-22_19-18-22.jpg
@@ -10,9 +10,13 @@
 
 [Argument]
 site_host = input,"sxsy33.com",tag=站点域名,desc=当前论坛域名。可填多个（逗号分隔）做自动择优，如 sxsy33.com,sxsy45.com。最新地址见 https://sxsy.pw
-sign_plugin = input,"sx_signin",tag=签到插件标识,desc=站点后台的签到插件目录名（接口为 plugin.php?id=<此值>:ajax）。站点换签到插件时只改这里，不用换脚本
+sign_plugin = input,"sx_signin",tag=签到插件标识,desc=站点签到插件目录名（接口为 plugin.php?id=<此值>:ajax）。站点换签到插件时只改这里，不用换脚本
+ocr_url = input,"",tag=OCR服务地址,desc=你自己 VPS 上的识别接口，走 Caddy 网关时填 https://64.110.114.30:8443/ocr（部署见仓库 vps-ocr/Caddyfile）。留空则只做签到提醒，不自动签
+ocr_token = input,"",tag=OCR服务令牌,desc=与 Caddyfile 里 X-OCR-Token 完全一致的那串值（openssl rand -hex 24 生成）。错了会返回 401
+ocr_retry = input,"3",tag=识别重试次数,desc=验证码识别失败时换图重试的次数，默认 3（单次约 90% 成功率，3 次≈99.9%）。可填 1~6
 req_timeout = input,"20000",tag=请求超时(毫秒),desc=单次请求超时，默认 20000。站点很慢可调到 30000
 cron_expr = input,"0 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:00
+notify_when_signed = switch,false,tag=已签到也通知,desc=关（默认）：已签到时不打扰；开：每天都会收到一条「今日已签到」
 
 [General]
 
@@ -23,10 +27,10 @@ cron_expr = input,"0 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日
 [Script]
 # 1. 浏览论坛时自动捕获/刷新 Cookie —— 用正则匹配任意 sxsy/sxyx 域名，换域名后无需改参数也能捕获
 request if ${url} ~= /^https?:\/\/(?:[\w-]+\.)*(?:sxsy|sxyx)[\w-]*\.(?:com|org|net|pw|cc|top|xyz)/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy-cookie.js") with tag="sxsy Cookie捕获", timeout=10
-# 2. 定时自动签到（域名择优 → formhash → 数学题 → 提交；单请求 20s 超时 + 3 次重试，故脚本超时放到 180s）
-cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${req_timeout}}) with tag="sxsy自动签到", timeout=180
-# 3. 手动签到（测试用）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${req_timeout}}) with tag="sxsy手动签到", timeout=180, img_url="checkmark.circle"
+# 2. 定时自动签到（域名择优 → 读状态 → 抓图 → VPS 识别 → 提交，失败换图重试；脚本超时 180s 留足重试余量）
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy自动签到", timeout=180
+# 3. 手动跑一次（测试用）
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy手动签到", timeout=180, img_url="checkmark.circle"
 
 [Mitm]
 hostname = sxsy*.com, *.sxsy*.com, sxsy*.org, *.sxsy*.org, sxyx*.org, *.sxyx*.org
