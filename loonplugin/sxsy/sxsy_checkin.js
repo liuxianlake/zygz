@@ -62,7 +62,6 @@ var MAX_PROBE = 3;
 var NOTIFY_WHEN_SIGNED = String(arg.notify_when_signed || "").toLowerCase() === "true";
 
 var RE_ALREADY = /(已经?签\s*过?到|已签\s*到|今日已签|今天已签|重复签|明天再来|无需重复)/;
-var RE_SECCODE = /(验证码|校验码|seccode)/i;
 
 function normalizeHost(s) {
   return String(s || "").trim()

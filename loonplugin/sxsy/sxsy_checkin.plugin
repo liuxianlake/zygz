@@ -28,9 +28,9 @@ notify_when_signed = switch,false,tag=已签到也通知,desc=关（默认）：
 # 1. 浏览论坛时自动捕获/刷新 Cookie —— 用正则匹配任意 sxsy/sxyx 域名，换域名后无需改参数也能捕获
 request if ${url} ~= /^https?:\/\/(?:[\w-]+\.)*(?:sxsy|sxyx)[\w-]*\.(?:com|org|net|pw|cc|top|xyz)/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy-cookie.js") with tag="sxsy Cookie捕获", timeout=10
 # 2. 定时自动签到（域名择优 → 读状态 → 抓图 → VPS 识别 → 提交，失败换图重试；脚本超时 180s 留足重试余量）
-cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy自动签到", timeout=180
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy自动签到", timeout=360
 # 3. 手动跑一次（测试用）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy手动签到", timeout=180, img_url="checkmark.circle"
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/sxsy/sxsy_checkin.js", {${site_host}, ${sign_plugin}, ${ocr_url}, ${ocr_token}, ${ocr_retry}, ${req_timeout}, ${notify_when_signed}}) with tag="sxsy手动签到", timeout=360, img_url="checkmark.circle"
 
 [Mitm]
 hostname = sxsy*.com, *.sxsy*.com, sxsy*.org, *.sxsy*.org, sxyx*.org, *.sxyx*.org
