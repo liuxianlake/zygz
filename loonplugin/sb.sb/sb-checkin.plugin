@@ -13,7 +13,7 @@ checkin_url = input,"https://sb.sb/signin/",tag=签到接口地址,desc=已按�
 checkin_method = select,"POST","GET",tag=请求方式,desc=已确认为 POST，GET 仅测试用
 signin_message = input,"",tag=签到留言,desc=签到时附带的一句话留言，会显示在今日签到板，可留空
 success_keyword = input,"",tag=成功关键字,desc=备用：脚本已自动识别签到结果，此项一般留空
-cap_node = input,"",tag=Cap验证出口,desc=人机验证域名(capjs.net)走哪个策略组/节点（填策略组名或节点名，如 PROXY）。留空=跟随内置分流。若通知提示「人机验证失败/请求超时」，把这里填成你代理论坛用的策略组名即可
+cap_node = input,"",tag=Cap验证出口,desc=建议留空。推荐做法：在你自己的 Loon 配置的 [Rule] 段里加一条指向 capjs.net 的规则，交给代理论坛所用的那个策略组。若要在此指定，必须填真实存在的策略组名或节点名（大小写敏感），多个之间用逗号隔开；填了不存在的名字，Loon 只会提示 can not find policy 并回退到全局第一个节点，等于白填
 capture_mode = select,"auto","always",tag=Cookie捕获策略,desc=auto:仅在没有Cookie或签到提示失效后才重新捕获（推荐）；always:每次浏览论坛都校验并更新
 cron_expr = input,"30 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:30
 notify = switch,true,tag=签到通知,desc=签到结果推送到系统通知

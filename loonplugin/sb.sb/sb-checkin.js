@@ -60,6 +60,30 @@
  *   ③ 因网络问题失败时，通知里会直接给出该怎么填。
  * 另：站点签到地址已由 /signin/ 变为 /checkin/，脚本从表单 action 自动跟随，
  *     无需改配置。
+ *
+ * ── 2026-11-09 修订（★ 本次：Cap 一次性 token 被原样重试作废）──────────
+ * 现象：challenge 拿到挑战、PoW 也算完了，redeem 却返回
+ *       「HTTP 403 Challenge already redeemed」。
+ * 根因：① redeem 是**一次性消费**请求（服务端收到即把 challenge token 标记
+ *         为已兑换，防重放）。旧代码对 redeem 也套了「换出口重试」，
+ *         而第一次是**客户端**超时（Loon 报 Request timeout），
+ *         请求其实已经到了服务端并兑换成功，只是响应在回程丢了 ——
+ *         于是第二个出口拿同一枚 token 去换，必然 403。
+ *           challenge 可安全重试（每次都生成新挑战），redeem 绝对不行。
+ *       ② 出口经验没复用：challenge 已在某出口成功，redeem 却仍从
+ *         「默认路由」重新开始，白吃一次 15~25s 超时。
+ * 对策：
+ *       ① redeem 失败一律「重新申请挑战 → 重解 PoW → 用新 token 再兑换」，
+ *          不再原样重发；最多 3 轮 + 75s 墙钟预算；
+ *       ② 某出口打通 challenge 后，本轮后续请求直接以它为起点；
+ *          成功出口写入 $persistentStore(sb_cap_route)，下次首发就用它；
+ *       ③ 移除硬编码的 "PROXY" 兜底 —— 很多 Loon 配置里没有这个策略组，
+ *          Loon 会提示 "can not find policy: proxy, use the global first
+ *          node" 并回退到全局第一个节点，等于白填。现在 cap_node 留空
+ *          就只用内置分流（推荐配合自己的分流规则），填了就按填的走，
+ *          支持逗号分隔多个；
+ *       ④ 签到 POST 网络超时后重来一次（重新取 cap-token，因为 cap-token
+ *          同样一次性）。
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
@@ -71,6 +95,27 @@ var DEFAULT_UA =
 
 /** Cap 验证端点默认值（签到页没解析到时回退用） */
 var DEFAULT_CAP_ENDPOINT = "https://capjs.net/415786673b/";
+
+/** 脚本启动时刻，用于总量控制（避免打满插件 300s 超时） */
+var SCRIPT_STARTED_AT = Date.now();
+
+/** 单个 cap 请求的超时（ms）。cap 服务响应通常 < 1s，15s 足够 */
+var CAP_TIMEOUT = 15000;
+
+/** 整个 cap 流程最多重来几轮（每轮 = 新挑战 + 重新解 PoW + 重新 redeem） */
+var CAP_FLOW_MAX = 3;
+
+/** 单次取得 cap-token 的墙钟预算（ms），超出即放弃 */
+var CAP_FLOW_BUDGET = 75000;
+
+/** 记住「上次把 cap 打通的那个出口」，下次优先用；空 = 从未成功过 */
+var CAP_ROUTE_KEY = "sb_cap_route";
+
+/** 签到 POST 最多提交几次（超时会重来一次，重来必须换新的 cap-token） */
+var POST_MAX_ATTEMPTS = 2;
+
+/** 距脚本启动超过这个时长就不再重试签到（给 cap 重算留出时间） */
+var POST_RETRY_BUDGET = 150000;
 
 var arg = typeof $argument === "object" && $argument !== null ? $argument : {};
 
@@ -601,21 +646,81 @@ function capBuildProbe(ua) {
 }
 
 /**
+ * 解析「Cap 验证出口」参数，得到候选出口列表。
+ * cap_node 支持逗号 / 空格分隔多个策略组或节点名；留空则只用内置分流。
+ * 列表末尾总会补上「跟随内置分流」（null）作为兜底。
+ * ⚠️ 不再硬编码任何策略组名：填入不存在的名字时 Loon 只会提示
+ *    "can not find policy: xxx, use the global first node" 并静默回退，
+ *    既达不到目的，又白耗一次超时。
+ */
+function capParseNodes(raw) {
+  var list = [];
+  var s = String(raw === undefined || raw === null ? "" : raw).trim();
+  if (s && s !== "false") {
+    var parts = s.split(/[,，\s]+/);
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].trim();
+      if (p && p !== "false") list.push(p);
+    }
+  }
+  list.push(null);                     // 兜底：跟随内置分流
+  return list;
+}
+
+/** 候选出口去重，并把「上次成功的出口」提到最前 */
+function capNodePlan() {
+  var cand = capParseNodes(arg.cap_node);
+  var uniq = [], seen = {}, i, k;
+  for (i = 0; i < cand.length; i++) {
+    k = cand[i] === null ? "__direct__" : String(cand[i]);
+    if (seen[k]) continue;
+    seen[k] = 1;
+    uniq.push(cand[i]);
+  }
+  var learned = String($persistentStore.read(CAP_ROUTE_KEY) || "").trim();
+  if (learned) {
+    for (i = 0; i < uniq.length; i++) {
+      k = uniq[i] === null ? "__direct__" : String(uniq[i]);
+      if (k === learned) {
+        if (i > 0) uniq.unshift(uniq.splice(i, 1)[0]);
+        break;
+      }
+    }
+  }
+  return uniq;
+}
+
+/** 把「打通过的出口」记下来，下次首发就用它 */
+function capRememberRoute(node) {
+  try {
+    $persistentStore.write(node ? String(node) : "__direct__", CAP_ROUTE_KEY);
+  } catch (e) {
+    /* 存储失败不影响签到 */
+  }
+}
+
+/** 出口的可读名，用于日志 */
+function capNodeName(node) {
+  return node ? String(node) : "默认路由";
+}
+
+/**
  * 完整走一遍 Cap 验证，换取 cap-token。
- * @param endpoint 形如 https://capjs.net/xxx/
- * @param ua       与浏览器一致的 User-Agent
- * @param baseOpts 请求基础配置工厂（复用签到脚本的 headers/Cookie）
- * @param cb       function(errMsg, token)
+ * @param endpoint   形如 https://capjs.net/xxx/
+ * @param ua         与浏览器一致的 User-Agent
+ * @param siteOrigin 站点源，用于 Origin / Referer
+ * @param cb         function(errMsg, token)
  */
 function capFetchToken(endpoint, ua, siteOrigin, cb) {
-  // Cap 验证服务（capjs.net）在国内直连时通时不通，一旦超时签到就会失败
-  // （2026-10-08 实测：直连 3 次里失败 2 次，走代理 3 次全成功）。
-  // 因此每次 cap 请求都做「换出口重试」，依次尝试：
-  //   跟随内置路由 → PROXY 策略组 → 跟随内置路由
-  // 若插件里配置了「Cap 验证出口」（cap_node），则全程固定使用它。
-  var CAP_TIMEOUT = 25000;
-  var userNode = String(arg.cap_node || "").trim();
-  var nodePlan = userNode ? [userNode, userNode, userNode] : [null, "PROXY", null];
+  var nodes = capNodePlan();
+  var goodIdx = 0;                     // 已确认可用的出口下标
+  var startedAt = Date.now();
+  var flow = 0;                        // 第几轮（1 = 首次）
+  var lastErr = "";                    // 最后一次失败原因，用于最终上报
+
+  var names = [];
+  for (var ni = 0; ni < nodes.length; ni++) names.push(capNodeName(nodes[ni]));
+  console.log("sb-checkin: [cap] 出口候选：" + names.join(" -> "));
 
   function capHeaders() {
     return {
@@ -628,11 +733,16 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
     };
   }
 
-  /** 带出口重试的 POST；回调只在最终失败或成功时触发一次 */
-  function capPost(path, body, done) {
-    var attempt = 0;
+  /**
+   * 发一次 cap 请求。遇到网络错误时从 startIdx 起轮换出口。
+   * 回调给出 usedIdx：最后一个真正返回响应的出口下标，
+   * 后续请求直接以它为起点，不再回到「已证明不通」的出口。
+   */
+  function capPost(path, body, startIdx, done) {
+    var idx = startIdx % nodes.length;
+    var tries = 0;
     function once() {
-      var node = nodePlan[Math.min(attempt, nodePlan.length - 1)];
+      var node = nodes[idx];
       var opts = {
         url: endpoint + path,
         headers: capHeaders(),
@@ -641,22 +751,47 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
         timeout: CAP_TIMEOUT
       };
       if (node) opts.node = node;
-      console.log("sb-checkin: [cap] POST " + path + "（第 " + (attempt + 1) + "/" + nodePlan.length +
-        " 次，出口：" + (node || "默认路由") + "）");
+      console.log("sb-checkin: [cap] POST " + path + "（出口：" + capNodeName(node) + "）");
       $httpClient.post(opts, function (err, resp, data) {
-        if (err && attempt < nodePlan.length - 1) {
-          attempt++;
+        if (err && tries < nodes.length - 1) {
+          tries++;
+          idx = (idx + 1) % nodes.length;
           console.log("sb-checkin: [cap] " + path + " 失败（" + err + "），换出口重试");
           return once();
         }
-        done(err, resp, data);
+        done(err, resp, data, idx);
       });
     }
     once();
   }
 
-  capPost("challenge", "{}", function (err, resp, data) {
-      if (err) return cb("挑战请求失败（多次重试仍不通）: " + err);
+  /**
+   * 一轮完整流程：challenge -> 探测脚本 + PoW -> redeem
+   * 失败标记：网络层失败和「兑换被拒」都走重来（换新挑战）；
+   * 协议层的异常（格式错、参数错、探测脚本解不出）直接判失败，重试也无用。
+   */
+  function startFlow() {
+    if (flow >= CAP_FLOW_MAX) {
+      return cb(lastErr
+        ? lastErr + "（已重试 " + flow + " 轮）"
+        : "人机验证未通过（已重试 " + flow + " 轮）");
+    }
+    if (Date.now() - startedAt > CAP_FLOW_BUDGET) {
+      return cb("人机验证超时（超出 " + Math.round(CAP_FLOW_BUDGET / 1000) + " 秒预算）");
+    }
+    flow++;
+    if (flow > 1) {
+      console.log("sb-checkin: [cap] 第 " + flow + " 轮：重新申请挑战（上一枚 token 已被服务端消费，不能复用）");
+    }
+
+    capPost("challenge", "{}", goodIdx, function (err, resp, data, idx) {
+      if (err) {
+        lastErr = "挑战请求失败（出口均无响应）: " + err;
+        console.log("sb-checkin: [cap] " + lastErr + "，重来");
+        return startFlow();
+      }
+      goodIdx = idx;
+
       var code = statusOf(resp);
       var raw = String(data || "");
       if (code !== 200) return cb("挑战请求 HTTP " + code + " " + raw.slice(0, 120));
@@ -672,14 +807,12 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
       console.log("sb-checkin: [cap] 挑战参数 c=" + cNum + " s=" + sNum + " d=" + dNum +
         (ch.instrumentation ? "（含 instrumentation）" : ""));
 
-      // 1) 复现探测脚本
+      // 1) 复现探测脚本（每轮都要重做：state 里带时间戳）
       var instr = null;
       if (ch.instrumentation) {
         var t1 = Date.now();
         var r = capRunInstrumentation(ch.instrumentation, ua);
-        if (r && r.error) {
-          return cb("人机验证探测脚本复现失败: " + r.error);
-        }
+        if (r && r.error) return cb("人机验证探测脚本复现失败: " + r.error);
         if (r && r.state) {
           instr = { i: r.id, state: r.state, p: capBuildProbe(ua), ts: Date.now() };
           console.log("sb-checkin: [cap] 探测脚本复现完成（" + (Date.now() - t1) + "ms）");
@@ -696,23 +829,47 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
       }
       console.log("sb-checkin: [cap] PoW 求解完成，耗时 " + (Date.now() - t0) + "ms");
 
-      // 3) 兑换 token
+      // 3) 兑换 cap-token
       var payload = { token: ch.token, solutions: solutions };
       if (instr) payload.instr = instr;
-      capPost("redeem", JSON.stringify(payload), function (err2, resp2, data2) {
-          if (err2) return cb("兑换请求失败（多次重试仍不通）: " + err2);
-          var code2 = statusOf(resp2);
-          var raw2 = String(data2 || "");
-          var r2 = null;
-          try { r2 = JSON.parse(raw2); } catch (e) { r2 = null; }
-          if (code2 !== 200 || !r2 || !r2.success || !r2.token) {
-            var reason = r2 && (r2.error || r2.reason) ? (r2.error || "") + " / " + (r2.reason || "") : raw2.slice(0, 160);
-            return cb("兑换失败（HTTP " + code2 + "）: " + reason);
-          }
-          console.log("sb-checkin: [cap] 已取得 cap-token");
-          cb(null, r2.token);
+
+      capPost("redeem", JSON.stringify(payload), goodIdx, function (err2, resp2, data2, idx2) {
+        goodIdx = idx2;
+
+        if (err2) {
+          // 网络层失败：这枚 token 可能已被服务端消费（响应丢在回程），
+          // 所以不能原样重发，只能连同 challenge 一起重来
+          lastErr = "兑换请求失败（出口均无响应）: " + err2;
+          console.log("sb-checkin: [cap] " + lastErr + "，重来");
+          return startFlow();
+        }
+
+        var code2 = statusOf(resp2);
+        var raw2 = String(data2 || "");
+        var r2 = null;
+        try { r2 = JSON.parse(raw2); } catch (e) { r2 = null; }
+
+        if (code2 === 200 && r2 && r2.success && r2.token) {
+          if (idx2 > 0) capRememberRoute(nodes[idx2]);   // 只有「换过出口才成功」才值得记
+          console.log("sb-checkin: [cap] 已取得 cap-token（出口：" + capNodeName(nodes[idx2]) +
+            "，第 " + flow + " 轮）");
+          return cb(null, r2.token);
+        }
+
+        var reason = r2 ? String(r2.error || r2.reason || "").trim() : "";
+        if (!reason) reason = raw2.slice(0, 160) || "（空响应）";
+        lastErr = "兑换失败（HTTP " + code2 + "）: " + reason;
+        console.log("sb-checkin: [cap] " + lastErr);
+
+        // 关键：redeem 是一次性消费请求。同一枚 token 重发必然失败
+        // （服务端已标记 redeemed，哪怕上一次只是「客户端超时」）。
+        // 因此这里绝不原样重试，只能申请新挑战重来。
+        return startFlow();
       });
-  });
+    });
+  }
+
+  startFlow();
 }
 
 /* ======================================================================
@@ -759,8 +916,12 @@ function main() {
     return { url: withUrl, headers: headersFor(), "auto-cookie": false, timeout: 20000 };
   }
 
-  /** 第 3 步：POST 签到（可带 capToken） */
-  function doCheckin(target, csrf, capToken) {
+  /**
+   * 第 3 步：POST 签到（可带 capToken）
+   * @param onRetry 网络超时后的重来入口（null = 不再重试）。
+   *                cap-token 是一次性的，重来必须重新走一遍 Cap 验证。
+   */
+  function doCheckin(target, csrf, capToken, onRetry) {
     var msg = String(arg.signin_message || "").trim();
     var body = "_csrf=" + encodeURIComponent(csrf) + "&message=" + encodeURIComponent(msg);
     if (capToken) body += "&cap-token=" + encodeURIComponent(capToken);
@@ -776,6 +937,10 @@ function main() {
 
     $httpClient.post(postOpts, function (err2, resp2, data2) {
       if (err2) {
+        if (onRetry) {
+          console.log("sb-checkin: POST 失败 " + err2 + "，重新取 cap-token 后重试");
+          return onRetry();
+        }
         notify("❌ 请求失败（签到）", String(err2));
         console.log("sb-checkin: POST 失败 " + err2);
         $done();
@@ -997,30 +1162,53 @@ function main() {
 
     // ---------- 第 2 步：需要人机验证则先换取 cap-token ----------
     var hasCapWidget = /<cap-widget|data-cap-api-endpoint/i.test(html);
-    if (!hasCapWidget) {
+    var capEndpoint = hasCapWidget
+      ? (findCapEndpoint(html, origin) || DEFAULT_CAP_ENDPOINT)
+      : "";
+    if (hasCapWidget) {
+      console.log("sb-checkin: 检测到 Cap 人机验证，端点 " + capEndpoint);
+    } else {
       console.log("sb-checkin: 页面未发现 Cap 验证组件，直接提交");
-      doCheckin(target, csrf, "");
-      return;
     }
 
-    var capEndpoint = findCapEndpoint(html, origin) || DEFAULT_CAP_ENDPOINT;
-    console.log("sb-checkin: 检测到 Cap 人机验证，端点 " + capEndpoint);
-    capFetchToken(capEndpoint, ua, origin, function (capErr, capToken) {
-      if (capErr) {
-        var isNetFail = /重试仍不通|timeout|Timeout/i.test(capErr);
-        var hint = isNetFail
-          ? "\n\n原因多半是「Cap 验证域名 capjs.net 当前出口不通」。可在插件设置里把「Cap 验证出口」填成你代理论坛用的策略组名（如 PROXY），保存后再试。"
-          : "";
-        notify(
-          "❌ 人机验证失败",
-          "无法获取 cap-token：" + capErr + hint + "\n\n本次未提交签到。"
-        );
-        console.log("sb-checkin: cap 失败 -> " + capErr);
-        $done();
+    /**
+     * 提交签到：先按需取 cap-token，再 POST。
+     * attempt=1 首次；2 = 上一次 POST 网络超时后的重来。
+     * 重来必须重新取 cap-token —— cap-token 同样是一次性的。
+     */
+    function submit(attempt) {
+      var canRetry = attempt < POST_MAX_ATTEMPTS &&
+        (Date.now() - SCRIPT_STARTED_AT) < POST_RETRY_BUDGET;
+      var onRetry = canRetry ? function () { submit(attempt + 1); } : null;
+
+      if (!hasCapWidget) {
+        doCheckin(target, csrf, "", onRetry);
         return;
       }
-      doCheckin(target, csrf, capToken);
-    });
+
+      capFetchToken(capEndpoint, ua, origin, function (capErr, capToken) {
+        if (capErr) {
+          var isNetFail = /无响应|均不通|timeout|Timeout|挑战请求失败|兑换请求失败|验证超时/i.test(capErr);
+          var hint = isNetFail
+            ? "\n\ncapjs.net 在当前出口不可达。最省事的做法是在你自己的 Loon 配置里加一条分流规则：" +
+              "\nDOMAIN-SUFFIX,capjs.net,你代理论坛用的策略组名" +
+              "\n也可以把插件里的「Cap验证出口」填成真实存在的策略组名（多个用逗号分隔）；" +
+              "\n填之前请先在 Loon 里确认这个策略组真的存在 —— 名字不存在时 Loon 只会" +
+              "提示 can not find policy 并回退到全局第一个节点，等于白填。"
+            : "";
+          notify(
+            "❌ 人机验证失败",
+            "无法获取 cap-token：" + capErr + hint + "\n\n本次未提交签到。"
+          );
+          console.log("sb-checkin: cap 失败 -> " + capErr);
+          $done();
+          return;
+        }
+        doCheckin(target, csrf, capToken, onRetry);
+      });
+    }
+
+    submit(1);
     });
   }
 
