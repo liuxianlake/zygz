@@ -1190,8 +1190,9 @@ function main() {
         if (capErr) {
           var isNetFail = /无响应|均不通|timeout|Timeout|挑战请求失败|兑换请求失败|验证超时/i.test(capErr);
           var hint = isNetFail
-            ? "\n\ncapjs.net 在当前出口不可达。最省事的做法是在你自己的 Loon 配置里加一条分流规则：" +
-              "\nDOMAIN-SUFFIX,capjs.net,你代理论坛用的策略组名" +
+            ? "\n\ncapjs.net 在当前出口不可达。把它加进你代理论坛用的那份分流规则里：" +
+              "\nDOMAIN-SUFFIX,capjs.net" +
+              "\n（RULE-SET 规则列表直接加这一行；[Rule] 段则在后面补策略组名）" +
               "\n也可以把插件里的「Cap验证出口」填成真实存在的策略组名（多个用逗号分隔）；" +
               "\n填之前请先在 Loon 里确认这个策略组真的存在 —— 名字不存在时 Loon 只会" +
               "提示 can not find policy 并回退到全局第一个节点，等于白填。"
