@@ -84,6 +84,29 @@
  *          支持逗号分隔多个；
  *       ④ 签到 POST 网络超时后重来一次（重新取 cap-token，因为 cap-token
  *          同样一次性）。
+ *
+ * ── 2026-11-09 修订之二（★ Cap 协议被彻底重写，instrumentation 换成绑定校验）──
+ * 现象：路由和重试都正常了，但 redeem 稳定返回
+ *       「HTTP 403 Blocked by instrumentation」(reason = instr_host_unreachable)
+ * 根因：Cap 在 2026-11-08 重写了 instrumentation（仓库改名 tiagozip/cap）：
+ *       ① 载荷从 { i, state, p, ts } 变成 { i, state, d }，多了一个
+ *          `d`（bound data，一段键名排序后的 JSON 字符串）；
+ *       ② 服务端不再下发 expectedVals，改为下发 binding，用
+ *          hashWith(FNV-1a) 对 `d` 的序列化结果算 g1/g2，再推导期望 state ——
+ *          也就是说 state 与 d 必须自洽，且 d 要通过它自己的
+ *          detectAutomation（站点已开 blockAutomatedBrowsers）；
+ *       ③ 客户端脚本被加固到跑不起来：强制要求真实 Window/Document/Navigator、
+ *          instanceof 校验、(0,eval) 栈检查、window.onload 与 postMessage 握手。
+ * 对策：不再试图执行那段脚本，改为「解析常量 + 自己算」：
+ *       ① 解压脚本，抠出 initVals / clientEqs 那一段（纯算术）在 mock DOM 里跑，
+ *          得到 dvKey 的 4 个值；
+ *       ② 抠出两道门槛的 seed（k, s）、每个变量自己的盐、以及是否需要异或 g1/g2；
+ *       ③ 自造一份合理的 d（字段对齐服务端 buildProbe，含 hp 宿主探测），
+ *          按 Cap 的 canonicalize 规则序列化；
+ *       ④ state[i] = ((dvKey[v] ^ salt ^ g1? ^ g2?) & 0x7FFFFFFF) % 900000 + 100000
+ *       实测：两次全新挑战均拿到 cap-token（2026-11-09）。
+ * ⚠️ 这条路依赖 Cap 的脚本模板结构。哪天它再改，日志会报
+ *    「人机验证载荷构造失败: 未找到 xxx」，届时需要重新对齐模板。
  */
 
 var COOKIE_KEY = "sb_forum_cookie";
@@ -271,9 +294,14 @@ var CAP_CLCIDX = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
 function capInflateRaw(src) {
   var pos = 0, bitbuf = 0, bitcnt = 0;
   var out = [];
+  var MAX_OUT = 400000;              // 输出上限，防止异常流把内存吃满
 
   function getBit() {
-    if (bitcnt === 0) { bitbuf = src[pos++] & 0xff; bitcnt = 8; }
+    if (bitcnt === 0) {
+      if (pos >= src.length) throw new Error("inflate: 数据意外结束");
+      bitbuf = src[pos++] & 0xff;
+      bitcnt = 8;
+    }
     var b = bitbuf & 1;
     bitbuf >>= 1;
     bitcnt--;
@@ -320,6 +348,7 @@ function capInflateRaw(src) {
         var dsym = decodeSym(distH);
         var dist = CAP_DBASE[dsym] + getBits(CAP_DEXT[dsym]);
         var start = out.length - dist;
+        if (start < 0) throw new Error("inflate: 回溯越界");
         for (var i = 0; i < length; i++) out.push(out[start + i]);
       }
     }
@@ -327,13 +356,19 @@ function capInflateRaw(src) {
 
   var fixedLit = null, fixedDist = null;
   for (;;) {
+    // 空转保护：bfinal=0 且 stored block 长度为 0 的异常流会让旧代码无限循环
+    if (out.length > MAX_OUT) throw new Error("inflate: 输出过长");
+    if (pos > src.length) throw new Error("inflate: 数据意外结束");
     var bfinal = getBit();
     var btype = getBits(2);
     if (btype === 0) {
       bitcnt = 0;
+      if (pos + 4 > src.length) throw new Error("inflate: stored block 越界");
       var len = (src[pos] & 0xff) | ((src[pos + 1] & 0xff) << 8);
       pos += 4;
+      if (pos + len > src.length) throw new Error("inflate: stored block 越界");
       for (var s = 0; s < len; s++) out.push(src[pos++] & 0xff);
+      if (!bfinal && len === 0) throw new Error("inflate: 空 block 且未结束");
     } else if (btype === 1) {
       if (!fixedLit) {
         var fl = [], fd = [], k;
@@ -562,12 +597,12 @@ function capSolvePoW(token, c, size, difficulty) {
   return solutions;
 }
 
-/* ---- 探测脚本复现（用于通过 instrumentation 校验） ---- */
+/* ---- 探测载荷构造（Cap 2026-11 新协议：state 由 d 反推） ---- */
 
-/** 最小 DOM 节点 mock：供脚本里的 domHelper 使用 */
+/** 最小 DOM 节点 mock：供客户端脚本里的 domHelper 使用 */
 function capMockNode() {
   var n = {
-    style: {}, innerText: "", parentNode: null, children: [],
+    style: {}, innerText: "", textContent: "", parentNode: null, children: [],
     appendChild: function (c) { c.parentNode = n; n.children.push(c); return c; },
     removeChild: function (c) {
       var i = n.children.indexOf(c);
@@ -583,66 +618,178 @@ function capMockNode() {
 }
 
 /**
- * 解压 instrumentation，提取其中的确定性计算块并执行，复现出 state。
- * 服务端会拿 state 与期望值比对，因此必须逐位算对。
- * 返回 { id, state } / { error } / null
+ * 从解压后的探测脚本里抠出构造 state 所需的全部常量。
+ * 那段脚本本身在 Loon 里跑不起来（它强制要求真实 Window/Document/Worker），
+ * 但真正决定 state 的只有 initVals + clientEqs 这一段纯算术，可以自己算。
+ *
+ * 返回 { id, vars, body, seeds, salts, folds } 或 { error }
  */
-function capRunInstrumentation(blob, ua) {
-  var script = capUtf8(capInflateRaw(capB64ToBytes(blob)));
-
+function capParseInstrScript(script) {
   var idM = script.match(/nonce:\s*"([0-9a-fA-F]{8,})"/);
   var id = idM ? idM[1] : "";
 
-  var dm = script.match(/var (\w+)=(\d+);var (\w+)=(\d+);var (\w+)=(\d+);var (\w+)=(\d+);/);
-  if (!dm) return { error: "未找到初始化变量" };
-  var start = script.indexOf(dm[0]);
-  var tail = script.slice(start);
-  var retM = tail.match(/return (\w+);\}\)\(\);/);
-  if (!retM) return { error: "未找到返回值" };
-  var body = tail.slice(0, retM.index + ("return " + retM[1] + ";").length);
+  // 4 个初始变量：var A=1;var B=2;var C=3;var D=4;
+  var vm = script.match(/var (\w+)=(-?\d+);var (\w+)=(-?\d+);var (\w+)=(-?\d+);var (\w+)=(-?\d+);/);
+  if (!vm) return { error: "未找到初始化变量" };
+  var vars = [vm[1], vm[3], vm[5], vm[7]];
 
+  var start = typeof vm.index === "number" ? vm.index : script.indexOf(vm[0]);
+  if (start < 0) return { error: "未找到初始化变量位置" };
+  var end = script.indexOf(";})();", start);
+  if (end < 0) return { error: "未找到脚本主体结尾" };
+  var body = script.slice(start, end);
+  if (!/return\s+\w+\s*$/.test(body)) return { error: "未找到返回值" };
+
+  // 两道哈希门槛：G1=H(ser,(k1^H(mix,s1))>>>0)  G2=H(ser,(k2^H(mix,s2))>>>0)
+  var seedRe = /(\w+)=(\w+)\((\w+),\((-?\d+)\^(\w+)\((.+?),(\d+)\)\)>>>0\)/g;
+  var seeds = [], sm;
+  while ((sm = seedRe.exec(script))) {
+    seeds.push({ name: sm[1], k: Number(sm[4]), s: Number(sm[7]) });
+    if (seeds.length >= 2) break;
+  }
+  if (seeds.length < 2) return { error: "未找到哈希门槛" };
+
+  // 每个变量的盐，以及它要不要异或 G1 / G2
+  var saltRe = /\["(\w+)"\]=\(\(\w+\["\1"\]\^(\d+)((?:\^\w+)*)\)&0x7FFFFFFF\)%900000\+100000;/g;
+  var salts = {}, folds = {}, m2, n = 0;
+  while ((m2 = saltRe.exec(script))) {
+    salts[m2[1]] = Number(m2[2]);
+    folds[m2[1]] = m2[3] || "";
+    n++;
+  }
+  if (n !== vars.length) return { error: "盐值数量不符（" + n + "/" + vars.length + "）" };
+
+  return { id: id, vars: vars, body: body, seeds: seeds, salts: salts, folds: folds };
+}
+
+/** 在 mock DOM 里跑 initVals + clientEqs，得到 4 个 dvKey 值 */
+function capBuildDvKey(body, ua) {
   var docMock = { createElement: function () { return capMockNode(); }, body: capMockNode() };
   var navMock = { userAgent: ua || DEFAULT_UA };
+  var fn = new Function("navigator", "document", "window", body);
+  var out = fn(navMock, docMock, {});
+  if (!out || typeof out !== "object") throw new Error("dvKey 为空");
+  return out;
+}
 
-  var state;
-  try {
-    var fn = new Function("navigator", "document", body);
-    state = fn(navMock, docMock);
-  } catch (e) {
-    return { error: "执行探测脚本失败: " + String(e && e.message ? e.message : e) };
+/** 与 Cap 的 serializeBound 等价：键名排序后再 JSON 化 */
+function capCanon(v) {
+  var i, k, out, keys;
+  if (Array.isArray(v)) {
+    out = [];
+    for (i = 0; i < v.length; i++) {
+      out.push(v[i] === undefined || typeof v[i] === "function" ? null : capCanon(v[i]));
+    }
+    return out;
   }
-  if (!state || typeof state !== "object") return { error: "探测脚本返回为空" };
-  return { id: id, state: state };
+  if (v && typeof v === "object") {
+    out = {};
+    keys = [];
+    for (k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) keys.push(k); }
+    keys.sort();
+    for (i = 0; i < keys.length; i++) {
+      var x = v[keys[i]];
+      if (x !== undefined && typeof x !== "function") out[keys[i]] = capCanon(x);
+    }
+    return out;
+  }
+  return v;
 }
 
 /**
- * 伪造一个「真实 iPhone Safari」的环境探测向量，规避自动化特征检测。
- * 服务端只用它做启发式判断（不比对具体数值），因此给出合理即可。
+ * 构造探测数据 d。字段名与 Cap 服务端 buildProbe 的产物一一对应。
+ * 服务端不比对固定指纹：它拿 binding 对 d 的序列化结果做哈希、反推期望 state，
+ * 因此只要我们报的数据能通过它自己的自动化检测，state 就能算准。
  */
-function capBuildProbe(ua) {
+function capBuildD(ua) {
+  var u = ua || DEFAULT_UA;
   return {
-    ua: ua,
-    productSub: "20030107",
-    webdriver: false,
-    oscpu: "__undefined",
-    deviceMemory: null,
-    uaDataPresent: false,
-    uaData: null,
-    plugins: { length: 0 },
-    pdfViewerEnabled: true,
-    engine: { hasMozInnerScreenX: false, hasChrome: false },
-    screen: { width: 390, height: 844 },
-    outerWH: [390, 664],
-    isExtended: null,
-    fontWidths: [
-      905.34, 812.11, 1004.56, 903.22, 902.45, 903.01, 900.88, 905.12,
-      902.67, 901.34, 903.78, 902.19, 905.55, 903.41, 902.88, 904.02, 901.77
-    ],
-    tamper: {
-      getParameterWebGL: true, toDataURL: true, getImageData: true,
-      permissionsQuery: true, fnToString: true
-    }
+    v: 1,
+    el: 1200,
+    p: {
+      ua: u,
+      productSub: "20030107",
+      webdriver: false,
+      oscpu: "__undefined",
+      deviceMemory: null,
+      uaDataPresent: false,
+      uaData: null,
+      plugins: { length: 0 },
+      pdfViewerEnabled: true,
+      engine: { hasMozInnerScreenX: false, hasChrome: false },
+      screen: { width: 390, height: 844 },
+      outerWH: [390, 664],
+      isExtended: null,
+      fontWidths: [905.34, 903.11, 903.56, 903.22, 902.45, 903.01, 900.88, 905.12,
+        902.67, 901.34, 903.78, 902.19, 905.55, 903.41, 902.88, 904.02, 901.77],
+      maxTouchPoints: 5,
+      langs: [1, true],
+      mainNav: {
+        ua: u, platform: "iPhone", languages: "zh-CN", hc: 8,
+        tz: "Asia/Shanghai", brands: null, brave: false, gl: "Apple GPU"
+      },
+      tamper: null
+    },
+    vp: [390, 664],
+    hp: {
+      nav: { ua: u, platform: "iPhone", languages: "zh-CN", hc: 8, brands: null, webdriver: false },
+      doc: false,
+      cdp: false,
+      ha: []
+    },
+    ag: [],
+    ce: 0,
+    ia: null,
+    bh: null
   };
+}
+
+/**
+ * 完整构造 instrumentation 载荷：{ i, state, d }
+ * 成功返回 { instr }，失败返回 { error }
+ */
+function capBuildInstr(blob, ua) {
+  var script;
+  try {
+    script = capUtf8(capInflateRaw(capB64ToBytes(blob)));
+  } catch (e) {
+    return { error: "探测脚本解压失败: " + String(e && e.message ? e.message : e) };
+  }
+
+  var p = capParseInstrScript(script);
+  if (p.error) return p;
+  if (!p.id) return { error: "未找到挑战 nonce" };
+
+  var dvKey;
+  try {
+    dvKey = capBuildDvKey(p.body, ua);
+  } catch (e) {
+    return { error: "dvKey 计算失败: " + String(e && e.message ? e.message : e) };
+  }
+
+  var ser = JSON.stringify(capCanon(capBuildD(ua)));
+
+  // mix = 4 个 dvKey 值按变量顺序用逗号拼接（服务端与客户端一致）
+  var parts = [];
+  for (var i = 0; i < p.vars.length; i++) parts.push(String(dvKey[p.vars[i]]));
+  var mix = parts.join(",");
+
+  var g1Name = p.seeds[0].name, g2Name = p.seeds[1].name;
+  var G1 = capFnv1aResume((p.seeds[0].k ^ capFnv1aResume(p.seeds[0].s, mix)) >>> 0, ser);
+  var G2 = capFnv1aResume((p.seeds[1].k ^ capFnv1aResume(p.seeds[1].s, mix)) >>> 0, ser);
+
+  var state = {};
+  for (var j = 0; j < p.vars.length; j++) {
+    var v = p.vars[j];
+    var bits = (dvKey[v] ^ p.salts[v]) >>> 0;
+    // 按完整标识符匹配（避免 vkuaqdm / vkuaqdm2 这类前缀撞车）
+    var ft = "," + String(p.folds[v] || "").replace(/\^/g, ",") + ",";
+    if (ft.indexOf("," + g1Name + ",") >= 0) bits = (bits ^ G1) >>> 0;
+    if (ft.indexOf("," + g2Name + ",") >= 0) bits = (bits ^ G2) >>> 0;
+    state[v] = ((bits & 0x7fffffff) % 900000) + 100000;
+  }
+
+  return { instr: { i: p.id, state: state, d: ser } };
 }
 
 /**
@@ -807,16 +954,15 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
       console.log("sb-checkin: [cap] 挑战参数 c=" + cNum + " s=" + sNum + " d=" + dNum +
         (ch.instrumentation ? "（含 instrumentation）" : ""));
 
-      // 1) 复现探测脚本（每轮都要重做：state 里带时间戳）
+      // 1) 构造 instrumentation 载荷（每轮挑战都要重做：nonce 和盐值都是新的）
       var instr = null;
       if (ch.instrumentation) {
         var t1 = Date.now();
-        var r = capRunInstrumentation(ch.instrumentation, ua);
-        if (r && r.error) return cb("人机验证探测脚本复现失败: " + r.error);
-        if (r && r.state) {
-          instr = { i: r.id, state: r.state, p: capBuildProbe(ua), ts: Date.now() };
-          console.log("sb-checkin: [cap] 探测脚本复现完成（" + (Date.now() - t1) + "ms）");
-        }
+        var r = capBuildInstr(ch.instrumentation, ua);
+        if (r.error) return cb("人机验证载荷构造失败: " + r.error);
+        instr = r.instr;
+        console.log("sb-checkin: [cap] 探测载荷构造完成（" + (Date.now() - t1) + "ms，d=" +
+          instr.d.length + " 字节）");
       }
 
       // 2) 求解 PoW（同步，耗时较长）
@@ -856,10 +1002,16 @@ function capFetchToken(endpoint, ua, siteOrigin, cb) {
           return cb(null, r2.token);
         }
 
-        var reason = r2 ? String(r2.error || r2.reason || "").trim() : "";
+        // 把服务端给的 reason / flags / checks 全打出来，便于定位是哪一项没过
+        var eMsg = r2 && r2.error ? String(r2.error) : "";
+        var rMsg = r2 && r2.reason ? String(r2.reason) : "";
+        var extra = "";
+        if (r2 && r2.flags) extra += " flags=" + JSON.stringify(r2.flags).slice(0, 200);
+        if (r2 && r2.checks) extra += " checks=" + JSON.stringify(r2.checks).slice(0, 240);
+        var reason = eMsg + (rMsg ? " (" + rMsg + ")" : "");
         if (!reason) reason = raw2.slice(0, 160) || "（空响应）";
         lastErr = "兑换失败（HTTP " + code2 + "）: " + reason;
-        console.log("sb-checkin: [cap] " + lastErr);
+        console.log("sb-checkin: [cap] " + lastErr + extra);
 
         // 关键：redeem 是一次性消费请求。同一枚 token 重发必然失败
         // （服务端已标记 redeemed，哪怕上一次只是「客户端超时」）。
