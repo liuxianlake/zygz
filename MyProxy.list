@@ -20,7 +20,6 @@ DOMAIN-SUFFIX,gofile.io
 # ================= 烧饼论坛 =================
 DOMAIN-SUFFIX,sb.sb
 
-# ================= 烧饼论坛签到的人机验证 =================
 # Cap 验证服务；签到脚本要 POST challenge/redeem，不走代理会超时
 DOMAIN-SUFFIX,capjs.net
 
