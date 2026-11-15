@@ -1,13 +1,13 @@
 #!name = 虎扑去广告（融合版）
-#!desc = 屏蔽开屏/信息流广告、首页推广位、我的页面冗余模块与各类横幅。改写自可莉(ZenmoFeiShi)版本：去掉 2024 年的旧脚本、全部改用复写实现，并修掉会让 App 白屏的返回体。
+#!desc = 屏蔽开屏/信息流广告、首页推广位、我的页面冗余模块与各类横幅。改写自可莉(ZenmoFeiShi)版本：去掉 2024 年的旧脚本、全部改用复写实现，并修掉会让 App 白屏的返回体。2026-11-15 新增「AI工坊」小游戏推广卡整类剔除、MitM 扩为 *.hupu.com。
 #!author = liuxianlake (原始规则 ZenmoFeiShi)
 #!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1793279058160_hupu-icon.png
-#!date = 2026-10-29
+#!date = 2026-11-15
 #!loon_version = 3.5.1(983)
 #!tag = 去广告,虎扑
 
 [Argument]
-legoFilter = switch,true,type=boolean,tag=精简首页模块,desc=关闭后首页入口卡片保持原样；遇到首页白屏可先关掉这一项
+legoFilter = switch,true,type=boolean,tag=精简首页模块,desc=关闭后首页入口卡片保持原样；遇到首页白屏可先关掉这一项。AI工坊推广卡的剔除是独立规则，不受此项影响
 
 [Rewrite]
 # ① 开屏 / 信息流广告 —— 给结构完整的空广告 JSON
@@ -31,5 +31,18 @@ response if ${url} ~= /^https?:\/\/games\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bpl
 # ④ 首页模块精简 —— 用 jq 复刻原脚本逻辑：剔除指定入口 + 含「我的应用」的卡片
 response if ${legoFilter} == true && ${url} ~= /^https?:\/\/bbs\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bbsallapi\/lego\/data/ then response.json.jq(`if .data.cards then .data.cards |= (map(if (.code == "multiIcon" and (.components | type) == "array") then .components = (.components | map(select((.data.title // "") as $t | ["个性换肤","专家预测","邀请好友","版主中心","JRs战术板","草稿箱","58同城"] | index($t) | not))) else . end) | map(select((((.components // []) | (if type == "array" then . else [] end) | map(.data.title // "")) | index("我的应用")) == null))) else . end`)
 
+# ⑤ 【2026-11-15 新增】剔除「AI工坊」小游戏推广卡（整类剔除，不限某款游戏）
+#    AI工坊 = 虎扑自家的 UGC 网页小游戏平台（入口 shaper.hupu.com、游戏页 activity-static.hupu.com），
+#    卡片混在首页 lego 模块数据里，点进去直接是 H5 游戏，全程没有第三方广告 SDK 参与 → 只能从数据层摘掉。
+#    为什么用 tostring + contains 而不是指定字段：
+#      · 不同版本里这层标识可能叫 title / data.title / tag / sourceName，统一序列化成字符串做子串匹配，字段改名也不失效
+#      · 匹配的是「AI工坊」这个来源标识（整类），不是某款具体游戏 → 虎扑换游戏推也不用再改规则
+#    components 与 card 两层都过滤：既能摘掉 multiIcon 里的单一入口，也能摘掉整张推广卡。
+#    单独成条而不并入 ④，是为了关掉 legoFilter 时 AI工坊 卡仍被剔除（多条复写按配置顺序依次执行）。
+response if ${url} ~= /^https?:\/\/bbs\.mobileapi\.hupu\.com\/\d+\/[\d.]+\/bbsallapi\/lego\/data/ then response.json.jq(`if (type == "object") then (if (.data | type) == "object" then (if (.data.cards | type) == "array" then .data.cards |= (map(if (type == "object") then (if (.components | type) == "array" then .components |= map(select((tostring | contains("AI工坊")) | not)) else . end) else . end) | map(select(if (type == "object") then ((tostring | contains("AI工坊")) | not) else true end))) else . end) else . end) else . end`)
+
 [Mitm]
-hostname = games.mobileapi.hupu.com, fairy.mobileapi.hupu.com, bbs.mobileapi.hupu.com, goblin.hupu.com
+# 2026-11-15：扩为通配。上一版只列了 4 个具体域名，shaper / activity-static 等新域名压根不进 MitM，
+# 既抓不到内容也改写不了 —— 这是原先拦不住 AI工坊 卡的结构性原因。
+# 具体域名保留一份做双保险，防止某些版本对 * 的层级匹配范围有差异。
+hostname = *.hupu.com, hupu.com, games.mobileapi.hupu.com, fairy.mobileapi.hupu.com, bbs.mobileapi.hupu.com, goblin.hupu.com, shaper.hupu.com, activity-static.hupu.com
