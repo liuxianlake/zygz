@@ -29,7 +29,7 @@
  *   4. 已签到 → 静默；OCR 没配/全失败 → 推可点击通知（openUrl 直达签到页）+ **附图**（mediaUrl 显示验证码原图），
  *      方便一眼看出 OCR 是读错了还是大小写不匹配
  *
- * 【Loon 参数】ocr_url（如 https://64.110.114.30:8443/ocr）、ocr_token、ocr_retry
+ * 【Loon 参数】ocr_url（如 https://你的VPS地址:8443/ocr）、ocr_token、ocr_retry
  *
  * ================== 历史 ==================
  * 2026-11-04 v4 提醒版：强校验验证码，改半自动

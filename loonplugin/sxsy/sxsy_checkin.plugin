@@ -11,7 +11,7 @@
 [Argument]
 site_host = input,"sxsy33.com",tag=站点域名,desc=当前论坛域名。可填多个（逗号分隔）做自动择优，如 sxsy33.com,sxsy45.com。最新地址见 https://sxsy.pw
 sign_plugin = input,"sx_signin",tag=签到插件标识,desc=站点签到插件目录名（接口为 plugin.php?id=<此值>:ajax）。站点换签到插件时只改这里，不用换脚本
-ocr_url = input,"",tag=OCR服务地址,desc=你自己 VPS 上的识别接口，走 Caddy 网关时填 https://64.110.114.30:8443/ocr（部署见仓库 vps-ocr/Caddyfile）。留空则只做签到提醒，不自动签
+ocr_url = input,"",tag=OCR服务地址,desc=你自己 VPS 上的识别接口，走 Caddy 网关时填 https://你的VPS地址:8443/ocr（部署见仓库 vps-ocr/Caddyfile）。留空则只做签到提醒，不自动签
 ocr_token = input,"",tag=OCR服务令牌,desc=与 Caddyfile 里 X-OCR-Token 完全一致的那串值（openssl rand -hex 24 生成）。错了会返回 401
 ocr_retry = input,"3",tag=识别重试次数,desc=验证码识别失败时换图重试的次数，默认 3（单次约 90% 成功率，3 次≈99.9%）。可填 1~6
 req_timeout = input,"20000",tag=请求超时(毫秒),desc=单次请求超时，默认 20000。站点很慢可调到 30000
