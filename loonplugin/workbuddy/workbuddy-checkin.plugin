@@ -1,14 +1,15 @@
 #!name = WorkBuddy 自动签到
-#!desc = 每日自动领取 WorkBuddy 签到积分（100 分/天）。登录态由「WorkBuddy 登录态捕获」插件从手机 App 流量中自动获取并持续刷新，本插件不自行刷新令牌，因此不会与 PC 客户端争用登录态。签到接口幂等，重复执行不会重复领取
+#!desc = 每日 7:00 自动领取 WorkBuddy 签到积分（100 分/天），失败会在 11/15/19/23 点自动重试。登录态由「WorkBuddy 登录态捕获」插件从手机 App 流量自动获取并持续刷新，本插件不自行刷新令牌，因此不会与 PC 客户端争用登录态。签到接口幂等，重复执行不会重复领取
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
+#!icon = https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/icon.png
 #!tag = 签到
 #!system = iOS,iPadOS,macOS
 #!loon_version = 3.5.1(983)
 #!type = normal
 
 [Argument]
-cron_expr = input,"20 8 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周），默认每天 8:20 自动签到
+cron_expr = input,"0 7,11,15,19,23 * * *",tag=定时时间,desc=Cron 表达式（分 时 日 月 周）。默认 7 点签，失败时 11/15/19/23 点自动重试；已签到会直接跳过，不会重复领取。只填一个时间可去掉后面的时段，如 0 7 * * *
 notify_when_signed = switch,false,tag=已签到也通知,desc=关（默认）：今天已签过则不打扰；开：每次执行都提示一句
 
 [General]
@@ -18,7 +19,7 @@ notify_when_signed = switch,false,tag=已签到也通知,desc=关（默认）：
 [Host]
 
 [Script]
-# 定时自动签到（网关择优 → 查状态 → 未签则签）
-cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js", {${notify_when_signed}}) with tag="WorkBuddy自动签到", timeout=60
+# 定时签到（网关择优 → 查状态 → 已签跳过 / 未签则签），失败由后续时点自动重试
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121c", {${notify_when_signed}}) with tag="WorkBuddy自动签到", timeout=60
 # 手动跑一次（测试用）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js", {${notify_when_signed}}) with tag="WorkBuddy手动签到", timeout=60, img_url="checkmark.circle"
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121c", {${notify_when_signed}}) with tag="WorkBuddy手动签到", timeout=60, img_url="checkmark.circle"

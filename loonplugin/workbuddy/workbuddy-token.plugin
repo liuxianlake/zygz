@@ -2,6 +2,7 @@
 #!desc = 手机端使用 WorkBuddy 时自动捕获请求头里的 accessToken 与 X-User-Id，存入 Loon 本地存储。只记录长度不打印令牌内容，不修改任何请求。配合「WorkBuddy 自动签到」使用，无需手工粘贴 token，登录态刷新后也会自动同步
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
+#!icon = https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/icon.png
 #!tag = 工具
 #!system = iOS,iPadOS,macOS
 #!loon_version = 3.5.1(983)
