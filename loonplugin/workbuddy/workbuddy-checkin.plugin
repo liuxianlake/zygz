@@ -20,6 +20,6 @@ notify_when_signed = switch,false,tag=已签到也通知,desc=关（默认）：
 
 [Script]
 # 定时签到（网关择优 → 查状态 → 已签跳过 / 未签则签），失败由后续时点自动重试
-cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121c", {${notify_when_signed}}) with tag="WorkBuddy自动签到", timeout=60
+cron ${cron_expr} then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121d", {${notify_when_signed}}) with tag="WorkBuddy自动签到", timeout=60
 # 手动跑一次（测试用）
-generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121c", {${notify_when_signed}}) with tag="WorkBuddy手动签到", timeout=60, img_url="checkmark.circle"
+generic then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-checkin.js?v=20261121d", {${notify_when_signed}}) with tag="WorkBuddy手动签到", timeout=60, img_url="checkmark.circle"
