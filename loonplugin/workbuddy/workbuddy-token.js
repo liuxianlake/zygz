@@ -23,6 +23,7 @@
   var UID_KEY = "wb_user_id";
   var HOST_KEY = "wb_host";
   var TS_KEY = "wb_token_ts";
+  var SEEN_KEY = "wb_probe_seen";
 
   var req = $request || {};
   var url = String(req.url || "");
@@ -49,8 +50,9 @@
   }
 
   var host = getHost(url);
-  // 双保险：插件侧正则已筛过一遍，这里再确认域名含 workbuddy
-  if (!/workbuddy/i.test(host)) {
+  // 双保险：插件侧正则已筛过一遍，这里再确认域名。
+  // WorkBuddy 前身是 CodeBuddy，App 侧可能仍有 codebuddy 域名流量，一并覆盖。
+  if (!/workbuddy|codebuddy/i.test(host)) {
     return finish();
   }
 
@@ -65,6 +67,17 @@
 
   console.log("[WB] " + (req.method || "GET") + " " + host +
     " authLen=" + token.length + " uidLen=" + uidStr.length);
+
+  // 探针自检：第一次命中任意请求就通知一次，用来确认规则与 MitM 是否真生效。
+  // 即使这条请求没带 token，也说明脚本确实跑起来了（避免"没通知=没工作"的误判）。
+  if (!$persistentStore.read(SEEN_KEY)) {
+    $persistentStore.write("1", SEEN_KEY);
+    $notification.post(
+      "WorkBuddy 探针",
+      "✅ 规则已命中",
+      host + " · authLen=" + token.length + " uidLen=" + uidStr.length
+    );
+  }
 
   if (!token) {
     // 这条请求没带 Bearer（静态资源、或 Cookie 鉴权的接口），跳过
