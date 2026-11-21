@@ -12,13 +12,12 @@
  * checkin_dates[0] 即服务端最近签到日期。只有它等于本地今天才标记，
  * 避免服务端换天时间与本地不一致时误判漏签。
  *
- * 通知格式（三行，一眼看清）：
+ * 通知格式（两行）：
  *   ✅ 签到成功
- *   📆 连签 53 天
- *   📊 +100 积分 · 活动累计 5300
+ *   📊 +100 积分 · 连签 53 天
  *
- * 说明：接口不提供账户总余额，total_credits 是签到活动的累计值
- * （约等于签到天数 × 每日积分），因此这里标注为「活动累计」。
+ * 积分值取自签到接口返回的 data.credit（真实值，非写死）：官方若调整
+ * 每日分值，通知会随之变化；两个来源都取不到时显示 ?，不编造数字。
  *
  * 参数：
  *   notify_when_signed —— 已签到时是否也通知，默认关
@@ -136,7 +135,6 @@
 
       var d = (body.data && typeof body.data === "object") ? body.data : {};
       var streak = num(d.streak_days);
-      var totalBefore = num(d.total_credits);
       var todayCredit = num(d.today_credit);
       var signed = (d.today_checked_in === true) || (body.code === ALREADY_CODE);
 
@@ -152,9 +150,7 @@
             var c = (todayCredit !== null) ? todayCredit : num(d.daily_credit);
             notify(
               "✅ 今日已签到",
-              "📆 连签 " + (streak !== null ? streak : "?") + " 天",
-              "📊 " + (c !== null ? c : "?") + " 积分" +
-              (totalBefore !== null ? " · 活动累计 " + totalBefore : "")
+              "📊 " + (c !== null ? c : "?") + " 积分 · 连签 " + (streak !== null ? streak : "?") + " 天"
             );
           }
         } else {
@@ -177,21 +173,16 @@
           $persistentStore.write(today, SIGNED_KEY);
           var credit = num(d2.credit);
           if (credit === null) credit = todayCredit;
-          var totalNow = (totalBefore !== null && credit !== null) ? (totalBefore + credit) : totalBefore;
           notify(
             "✅ 签到成功",
-            "📆 连签 " + (streak2 !== null ? streak2 : "?") + " 天",
-            "📊 +" + (credit !== null ? credit : "?") + " 积分" +
-            (totalNow !== null ? " · 活动累计 " + totalNow : "")
+            "📊 +" + (credit !== null ? credit : "?") + " 积分 · 连签 " + (streak2 !== null ? streak2 : "?") + " 天"
           );
         } else if (body2.code === ALREADY_CODE) {
           $persistentStore.write(today, SIGNED_KEY);
           if (NOTIFY_SIGNED) {
             notify(
               "✅ 今日已签到",
-              "📆 连签 " + (streak2 !== null ? streak2 : "?") + " 天",
-              "📊 " + (todayCredit !== null ? todayCredit : "?") + " 积分" +
-              (totalBefore !== null ? " · 活动累计 " + totalBefore : "")
+              "📊 " + (todayCredit !== null ? todayCredit : "?") + " 积分 · 连签 " + (streak2 !== null ? streak2 : "?") + " 天"
             );
           } else {
             console.log("[WB-CK] 服务端判定已签到，已标记");
