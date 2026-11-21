@@ -1,0 +1,21 @@
+#!name = WorkBuddy 登录态捕获
+#!desc = 手机端使用 WorkBuddy 时自动捕获请求头里的 accessToken 与 X-User-Id，存入 Loon 本地存储。只记录长度不打印令牌内容，不修改任何请求。配合「WorkBuddy 自动签到」使用，无需手工粘贴 token，登录态刷新后也会自动同步
+#!author = liuxianlake
+#!homepage = https://github.com/liuxianlake/zygz
+#!tag = 工具
+#!system = iOS,iPadOS,macOS
+#!loon_version = 3.5.1(983)
+#!type = normal
+
+[General]
+
+[Rewrite]
+
+[Host]
+
+[Script]
+# 捕获任意 workbuddy 域名请求中的登录态（国内站 / 国际站都覆盖，换子域名无需改规则）
+request if ${url} ~= /^https?:\/\/[^\/]*workbuddy[^\/]*/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-token.js") with tag="WorkBuddy登录态捕获", timeout=10
+
+[Mitm]
+hostname = %APPEND% *.workbuddy.cn, workbuddy.cn, *.workbuddy.ai, workbuddy.ai
