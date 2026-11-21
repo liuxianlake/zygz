@@ -24,6 +24,7 @@
   var HOST_KEY = "wb_host";
   var TS_KEY = "wb_token_ts";
   var SEEN_KEY = "wb_probe_seen";
+  var TOKEN_HOST_KEY = "wb_token_host";
 
   var req = $request || {};
   var url = String(req.url || "");
@@ -51,8 +52,8 @@
 
   var host = getHost(url);
   // 双保险：插件侧正则已筛过一遍，这里再确认域名。
-  // WorkBuddy 前身是 CodeBuddy，App 侧可能仍有 codebuddy 域名流量，一并覆盖。
-  if (!/workbuddy|codebuddy/i.test(host)) {
+  // 手机 App 走 copilot.tencent.com，PC 与 H5 走 workbuddy/codebuddy，三套都覆盖。
+  if (!/workbuddy|codebuddy|copilot\.tencent/i.test(host)) {
     return finish();
   }
 
@@ -95,7 +96,11 @@
   }
 
   if (uidStr) $persistentStore.write(uidStr, UID_KEY);
-  if (host) $persistentStore.write(host, HOST_KEY);
+  if (host) {
+    $persistentStore.write(host, HOST_KEY);
+    // 记录令牌来源网关：签到脚本据此选 www.workbuddy.cn 还是 copilot.tencent.com
+    $persistentStore.write(host, TOKEN_HOST_KEY);
+  }
   $persistentStore.write(String(Date.now()), TS_KEY);
 
   if (!oldToken) {

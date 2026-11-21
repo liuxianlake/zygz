@@ -14,8 +14,9 @@
 [Host]
 
 [Script]
-# 捕获任意 workbuddy / codebuddy 域名请求中的登录态（WorkBuddy 前身 CodeBuddy，两套域名都覆盖；换子域名无需改规则）
-request if ${url} ~= /^https?:\/\/[^\/]*(?:workbuddy|codebuddy)[^\/]*/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-token.js?v=20261121a") with tag="WorkBuddy登录态捕获", timeout=10
+# 捕获 workbuddy / codebuddy / copilot.tencent 域名请求中的登录态
+# 手机 App 走 copilot.tencent.com，PC 客户端走 www.workbuddy.cn，两套网关都覆盖
+request if ${url} ~= /^https?:\/\/[^\/]*(?:workbuddy|codebuddy|copilot\.tencent)[^\/]*/i then script("https://raw.githubusercontent.com/liuxianlake/zygz/main/loonplugin/workbuddy/workbuddy-token.js?v=20261121b") with tag="WorkBuddy登录态捕获", timeout=10
 
 [Mitm]
-hostname = %APPEND% *.workbuddy.cn, workbuddy.cn, *.workbuddy.ai, workbuddy.ai, *.codebuddy.cn, codebuddy.cn, *.codebuddy.ai, codebuddy.ai
+hostname = %APPEND% *.workbuddy.cn, workbuddy.cn, *.workbuddy.ai, workbuddy.ai, *.codebuddy.cn, codebuddy.cn, *.codebuddy.ai, codebuddy.ai, copilot.tencent.com
