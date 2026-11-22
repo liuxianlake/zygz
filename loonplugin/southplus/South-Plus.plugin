@@ -2,7 +2,7 @@
 #!desc = South-Plus 日常+周常任务自动签到；浏览论坛时自动捕获/刷新 Cookie（会话有效期约一年）
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
-#!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786666943582_2026-8-14_8-13-43.png
+#!icon = https://cdn.jsdelivr.net/gh/liuxianlake/zygz@main/loonplugin/southplus/icon.png
 #!tag = 签到
 #!system = iOS,iPadOS,macOS
 #!loon_version = 3.5.1(983)

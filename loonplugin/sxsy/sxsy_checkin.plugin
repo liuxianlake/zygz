@@ -2,7 +2,7 @@
 #!desc = sxsy 论坛自动签到（站点改用 sx_signin 插件 + 图片验证码）。脚本抓图 → 发给自己 VPS 上的 ddddocr 识别 → 自动提交，失败换图重试；OCR 没配或全失败时推可点击通知兜底，绝不漏签
 #!author = liuxianlake
 #!homepage = https://github.com/liuxianlake/zygz
-#!icon = https://cloudflare-imgbed-6gi.pages.dev/file/icon/1786667308789_photo_2025-02-22_19-18-22.jpg
+#!icon = https://cdn.jsdelivr.net/gh/liuxianlake/zygz@main/loonplugin/sxsy/icon.png
 #!tag = 签到
 #!system = iOS,iPadOS,macOS
 #!loon_version = 3.5.1(983)
