@@ -2,6 +2,12 @@
  * @name sxsy 自动签到（OCR 版）
  * @description sxsy 论坛自动签到：抓验证码图片 → 发给自己 VPS 上的 ddddocr 识别 → 自动提交；失败则推可点击通知兜底
  *
+ * ================== 2026-11-22 v6：通知样式美化 ==================
+ *
+ * 标题固定「sxsy签到」，一眼识别来源；副标题用状态图标开头（✅ 成功 / ☑️ 已签 / ❌ 失败 / 🔑 失效…），
+ * 正文每条信息一行、行首带字段图标（📅 连续·累计合并成一行 / 💰 积分 / 🔍 OCR / 🔁 次数 / 👉 操作建议），
+ * 由 lines() 统一 \n 拼接并过滤空行，daysLine() 负责天数合并（缺一项自动降级成单段）。
+ *
  * ================== 2026-11-04 v5：OCR 自动签到 ==================
  *
  * 【背景】站点 11 月改版，签到插件从 k_misign 换成自研的 sx_signin，接口：
@@ -125,6 +131,36 @@ function jarNames() {
   var arr = [];
   for (var k in cookieJar) arr.push(k);
   return arr;
+}
+
+// 天数合并成一行：「📅 连续 67 天 · 累计 104 天」
+function daysLine(streak, total) {
+  var a = [];
+  if (streak) a.push("连续 " + streak + " 天");
+  if (total) a.push("累计 " + total + " 天");
+  return a.length ? "📅 " + a.join(" · ") : "";
+}
+
+// 把底层报错翻成人话，避免通知里出现 "Error: timeout" 这类原始串
+function friendlyError(e) {
+  var s = String(e || "").trim();
+  if (!s) return "未知错误";
+  if (/timeout|timed out|超时/i.test(s)) return "连接超时";
+  if (/offline|not connected|无网络|网络/i.test(s)) return "本机网络不通";
+  if (/hostname|could not be found|dns|resolve|解析/i.test(s)) return "域名解析失败";
+  if (/refused|reset|closed|interrupted/i.test(s)) return "连接被中断";
+  if (/cancel/i.test(s)) return "请求被取消";
+  return s.replace(/^Error:\s*/i, "");
+}
+
+// 通知正文分行：过滤空行后按 \n 拼接
+function lines(arr) {
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var s = String(arr[i] == null ? "" : arr[i]).trim();
+    if (s) out.push(s);
+  }
+  return out.join("\n");
 }
 
 // 通知：第 3 参可传 openUrl 字符串，或 {openUrl, mediaUrl} 对象
@@ -434,7 +470,7 @@ async function pickHost() {
   for (var i = 0; i < list.length; i++) {
     var h = list[i];
     var r = await rawGet("https://" + h + "/index.php?mobile=2", "", PROBE_TIMEOUT);
-    if (!r.ok) { tried.push(h + "：" + r.error); continue; }
+    if (!r.ok) { tried.push(h + "：" + friendlyError(r.error)); continue; }
     if (r.status !== 200) { tried.push(h + "：HTTP " + r.status); continue; }
     if (pickFormhash(r.body)) { console.log("sxsy-checkin: 域名探测命中 " + h); return { host: h, resp: r }; }
     if (isLoginPage(r.body)) { return { loginHost: h, resp: r }; }
@@ -536,12 +572,12 @@ async function autoSign(host, formhash, captchaUrls) {
 
 function successNotify(json, extra, t0) {
   var d = (json && json.data) || {};
-  var bits = [];
-  if (d.streak) bits.push("连续 " + d.streak + " 天");
-  if (d.total) bits.push("累计 " + d.total + " 天");
-  if (d.today_credit !== undefined) bits.push("+" + d.today_credit + " 积分");
-  var detail = bits.length ? bits.join("，") : ((json && json.msg) || "签到成功");
-  notify("签到成功" + (extra ? "（" + extra + "）" : ""), detail);
+  var body = lines([
+    daysLine(d.streak, d.total),
+    d.today_credit !== undefined ? "💰 今日 +" + d.today_credit + " 积分" : "",
+    extra ? "🤖 " + extra + "识别通过" : ""
+  ]);
+  notify("✅ 签到成功", body || ((json && json.msg) || "签到成功"));
   console.log("sxsy-checkin: 成功 " + JSON.stringify(d) + "，耗时 " + (Date.now() - t0) + "ms");
 }
 
@@ -552,11 +588,18 @@ async function main() {
 
   var picked = await pickHost();
   if (picked.loginHost) {
-    notify("Cookie 已失效", "站点 " + picked.loginHost + " 要求重新登录，请在浏览器登录一次（Cookie 会自动更新）");
+    notify("🔑 Cookie 已失效", lines([
+      "📍 站点：" + picked.loginHost,
+      "👉 请在浏览器重新登录一次",
+      "🔐 Cookie 会自动更新"
+    ]));
     return;
   }
   if (!picked.host) {
-    notify("域名可能又变了", "所有候选域名都不通（" + (picked.tried || []).join("；") + "）。最新地址见 " + PUBLISH_URL);
+    notify("🌐 域名可能又变了", lines([
+      (picked.tried || []).map(function (x) { return "❌ " + x; }).join("\n"),
+      "🔗 最新地址见 " + PUBLISH_URL
+    ]));
     return;
   }
 
@@ -568,11 +611,19 @@ async function main() {
 
   var r = await rawGet(signPageUrl, "", REQ_TIMEOUT);
   if (!r || !r.ok) {
-    notify("签到页打不开", "站点 " + siteHost + " 响应异常：" + ((r && r.error) || "未知错误"), signPageUrl);
+    notify("🔌 签到页打不开", lines([
+      "📍 站点：" + siteHost,
+      "⚠️ " + friendlyError(r && r.error),
+      "👉 点此手动签到"
+    ]), signPageUrl);
     return;
   }
   if (isLoginPage(r.body)) {
-    notify("Cookie 已失效", "签到页要求重新登录，请在浏览器登录一次", signPageUrl);
+    notify("🔑 Cookie 已失效", lines([
+      "📍 站点：" + siteHost,
+      "👉 请在浏览器重新登录一次",
+      "🔐 Cookie 会自动更新"
+    ]), signPageUrl);
     return;
   }
 
@@ -588,16 +639,22 @@ async function main() {
   // ---- 已签到：静默 ----
   if (st.signed === true) {
     console.log("sxsy-checkin: 今日已签到，静默结束（耗时 " + (Date.now() - t0) + "ms）");
-    var bits = [];
-    if (st.streak) bits.push("连续 " + st.streak + " 天");
-    if (st.total) bits.push("累计 " + st.total + " 天");
-    if (NOTIFY_WHEN_SIGNED) notify("今日已签到", bits.join("，") || "无需重复签到", signPageUrl);
+    if (NOTIFY_WHEN_SIGNED) {
+      notify("☑️ 今日已签到", lines([
+        daysLine(st.streak, st.total),
+        "💤 无需重复签到"
+      ]), signPageUrl);
+    }
     return;
   }
 
   // ---- 未签到（或状态未知）：尝试 OCR 自动签到 ----
   if (!formhash) {
-    notify("取不到 formhash", "签到页结构可能又变了，点此手动签到", signPageUrl);
+    notify("🧩 取不到 formhash", lines([
+      "📍 站点：" + siteHost,
+      "⚠️ 签到页结构可能又变了",
+      "👉 点此手动签到"
+    ]), signPageUrl);
     return;
   }
 
@@ -605,7 +662,10 @@ async function main() {
   var result = await autoSign(siteHost, formhash, captchaUrls);
 
   if (result.done && result.already) {
-    notify("今日已签到", "服务器返回：" + ((result.json && result.json.msg) || "已签到"), signPageUrl);
+    notify("☑️ 今日已签到", lines([
+      "💬 服务器：" + ((result.json && result.json.msg) || "已签到"),
+      "💤 无需重复签到"
+    ]), signPageUrl);
     return;
   }
   if (result.done) {
@@ -615,19 +675,20 @@ async function main() {
 
   // ---- 兜底：推可点击通知 + 附上验证码图片（便于一眼看出 OCR 读得对不对） ----
   var why = result.reason || "未知原因";
-  var detail = [];
-  if (st.streak) detail.push("连续 " + st.streak + " 天");
-  var extra = "";
-  if (result.code) extra += "｜OCR 读到：" + result.code;
-  if (result.tries) extra += "（共试 " + result.tries + " 次）";
 
   var opts = { openUrl: signPageUrl };
   var uri = toDataUri(result.bytes);
   if (uri) opts.mediaUrl = uri;
 
   notify(
-    "自动签到没成功",
-    "原因：" + why + (detail.length ? "｜" + detail.join("，") : "") + extra + "｜点此手动签一下",
+    "❌ 自动签到没成功",
+    lines([
+      "⚠️ 原因：" + why,
+      daysLine(st.streak, st.total),
+      result.code ? "🔍 OCR 读到：" + result.code : "",
+      result.tries ? "🔁 共试 " + result.tries + " 次" : "",
+      "👉 点此手动签到（附验证码原图）"
+    ]),
     opts
   );
   console.log("sxsy-checkin: 自动签到失败（" + why + "），耗时 " + (Date.now() - t0) + "ms" +
@@ -635,16 +696,24 @@ async function main() {
 }
 
 if (!hosts.length) {
-  notify("未配置站点域名", "请在插件参数「站点域名」中填写当前域名（最新地址见 " + PUBLISH_URL + "）");
+  notify("⚙️ 未配置站点域名", lines([
+    "👉 请到插件参数「站点域名」填写",
+    "🔗 最新地址见 " + PUBLISH_URL
+  ]));
   $done();
 } else if (!cookie) {
-  notify("缺少 Cookie", "请先用浏览器登录论坛，捕获脚本会自动保存 Cookie");
+  notify("🍪 缺少 Cookie", lines([
+    "👉 请先在浏览器登录一次论坛",
+    "🔐 捕获脚本会自动保存 Cookie"
+  ]));
   $done();
 } else {
   (async function () {
     try { await main(); } catch (e) {
       console.log("sxsy-checkin: 执行异常 " + (e && e.message ? e.message : e));
-      notify("执行异常", String(e && e.message ? e.message : e));
+      notify("💥 执行异常", lines([
+        "❌ " + String(e && e.message ? e.message : e)
+      ]));
     }
     $done();
   })();
