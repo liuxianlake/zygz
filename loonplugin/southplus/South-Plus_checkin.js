@@ -2,6 +2,12 @@
  * @name South-Plus签到
  * @description South-Plus 日常+周常任务签到
  *
+ * 2026-11-22 修订：
+ * - 通知改为两行：副标题=日常任务，正文=周常任务
+ * - 状态符号：✅ 成功 / ❌ 失败 / ⏳ 未刷新（未刷新不再算失败）
+ * - 符号用 ⏳ 而非 🈚：后者兼有 CJK 字符身份，会被中文字体渲染成透明底黑白字
+ * - 签到判定与日志输出未改动
+ *
  * 2026-09-27 修订：
  * - 修复：缺 Cookie 时 $done() 后未中断，会继续执行流程并二次通知
  * - 修复：CDATA 正则不跨行，多行内容会被截断
@@ -25,8 +31,16 @@ var verify = "38dc1030";
 var userAgent = $persistentStore.read(UA_KEY) ||
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1";
 
-function notify(text) {
-  $notification.post("South-Plus", text, "");
+// 通知结构：标题固定 South-Plus，副标题=日常任务，正文=周常任务
+function notify(subtitle, body) {
+  $notification.post("South-Plus", subtitle, body || "");
+}
+
+// 任务状态 → 单行通知文案。状态词本身不变，仅在这里做展示映射
+function statusLine(label, status) {
+  if (status === "完成") return "✅ " + label + "任务成功";
+  if (status === "未刷新") return "⏳ " + label + "任务未刷新";
+  return "❌ " + label + "任务失败"; // 异常及其它一律按失败呈现
 }
 
 function getHeaders() {
@@ -123,7 +137,7 @@ async function runTask(name, cid) {
 
 if (!cookie) {
   console.log("sp-checkin: 缺少 Cookie，终止执行");
-  notify("Cookie 缺失，请先登录论坛（捕获脚本会自动保存）");
+  notify("❌ Cookie 缺失", "请先登录论坛（捕获脚本会自动保存）");
   $done();
 } else {
   (async function () {
@@ -143,16 +157,17 @@ if (!cookie) {
       var logText = logs.join("\n\n================\n\n");
       console.log(logText);
 
-      // 只发送一次通知，内容保持极短
-      var notificationText = "日常：" + daily.status + "｜周常：" + weekly.status;
+      // 只发送一次通知：日常一行、周常一行
       if (daily.status === "Cookie失效" || weekly.status === "Cookie失效") {
-        notificationText = "Cookie失效，请重新登录（浏览论坛一次即可自动更新）";
+        // 两个任务同时判失效时，不必重复两行同一句话
+        notify("❌ Cookie 已失效", "请重新登录论坛（浏览一次即可自动更新）");
+      } else {
+        notify(statusLine("日常", daily.status), statusLine("周常", weekly.status));
       }
-      notify(notificationText);
 
     } catch (e) {
       console.log("sp-checkin: 执行异常 " + (e && e.message ? e.message : e));
-      notify("执行异常：" + (e && e.message ? e.message : e));
+      notify("❌ 执行异常", e && e.message ? e.message : String(e));
     }
 
     $done();
