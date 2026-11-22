@@ -149,6 +149,57 @@ function notify(subtitle, content) {
   }
 }
 
+// 通知正文分行：过滤空行后按 \n 拼接
+function lines(arr) {
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var s = String(arr[i] == null ? "" : arr[i]).trim();
+    if (s) out.push(s);
+  }
+  return out.join("\n");
+}
+
+// 把底层报错翻成人话，避免通知里出现 "Error: timeout" 这类原始串
+function friendlyError(e) {
+  var s = String(e || "").trim();
+  if (!s) return "未知错误";
+  if (/timeout|timed out|超时/i.test(s)) return "连接超时";
+  if (/offline|not connected|无网络|网络/i.test(s)) return "本机网络不通";
+  if (/hostname|could not be found|dns|resolve|解析/i.test(s)) return "域名解析失败";
+  if (/refused|reset|closed|interrupted/i.test(s)) return "连接被中断";
+  if (/cancel/i.test(s)) return "请求被取消";
+  return s.replace(/^Error:\s*/i, "");
+}
+
+/**
+ * 把签到结果原文拆成「连续天数」和「烧饼金额」两行。
+ * 站点原文形如：「签到成功。连续签到第 12 天，基础 3 饼共 15 饼」（见 README 抓包记录）。
+ * 解析不到任何字段时原样回退成一行 💬，绝不编造数字。
+ */
+function signLines(text) {
+  var t = String(text || "").trim();
+  var out = [];
+
+  var ms = t.match(/连续[^0-9]{0,6}(\d+)\s*天/);
+  if (ms) out.push("📊 连续签到第 " + ms[1] + " 天");
+
+  var mg = t.match(/基础[^0-9]{0,4}([\d,]+)\s*(?:烧饼|饼)/) ||
+    t.match(/获得[^0-9]{0,4}([\d,]+)\s*(?:烧饼|饼)/) ||
+    t.match(/奖励[^0-9]{0,4}([\d,]+)\s*(?:烧饼|饼)/);
+  var mt = t.match(/共\s*([\d,]+)\s*(?:烧饼|饼)/);
+  var gain = mg ? mg[1] : "";
+  var total = mt ? mt[1] : "";
+  if (gain || total) {
+    var bits = [];
+    if (gain) bits.push("+" + gain + " 烧饼");
+    if (total) bits.push("共 " + total + " 烧饼");
+    out.push("🍪 " + bits.join(" · "));
+  }
+
+  if (!out.length && t) out.push("💬 " + t);
+  return out;
+}
+
 /**
  * 标记现存 Cookie 已失效 → 下次浏览论坛时，Cookie 捕获脚本才会重新捕获。
  * 这是「按需捕获」闭环的开关：只有这里置 1，捕获脚本才会覆盖 Cookie。
@@ -163,8 +214,6 @@ function clearCookieInvalid() {
   $persistentStore.write("", INVALID_KEY);
 }
 
-var RELOGIN_HINT = "请重新登录论坛一次，插件会自动重新捕获 Cookie。";
-
 function statusOf(resp) {
   var c = resp && resp.status ? Number(resp.status) : 0;
   return isNaN(c) ? 0 : c;
@@ -172,7 +221,7 @@ function statusOf(resp) {
 
 function stripTags(html) {
   return String(html || "")
-    .replace(/<[^>]+>/g, "")
+    .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
@@ -1032,14 +1081,18 @@ function main() {
   var cookie = $persistentStore.read(COOKIE_KEY);
   console.log("sb-checkin: 脚本已执行，Cookie " + (cookie ? "已存储 (" + cookie.length + " 字符)" : "未存储"));
   if (!cookie) {
-    notify("❌ 未找到 Cookie", "请先用浏览器登录论坛，让插件自动捕获 Cookie");
+    notify("🍪 未找到 Cookie", lines([
+      "👉 请先用浏览器登录一次论坛",
+      "🔐 插件会自动捕获并保存 Cookie"
+    ]));
     console.log("sb-checkin: 缺少 Cookie");
     $done();
     return;
   }
 
   var savedAt = parseInt($persistentStore.read(TS_KEY) || "0", 10) || 0;
-  var savedHint = savedAt ? "（Cookie 保存于 " + new Date(savedAt).toLocaleString() + "）" : "";
+  // 作为正文里的独立一行，缺失时由 lines() 自动过滤
+  var savedLine = savedAt ? "🕒 Cookie 保存于 " + new Date(savedAt).toLocaleString() : "";
 
   var url = String(arg.checkin_url || "https://sb.sb/signin/").trim() || "https://sb.sb/signin/";
   var method = String(arg.checkin_method || "POST").toUpperCase();
@@ -1093,7 +1146,11 @@ function main() {
           console.log("sb-checkin: POST 失败 " + err2 + "，重新取 cap-token 后重试");
           return onRetry();
         }
-        notify("❌ 请求失败（签到）", String(err2));
+        notify("🔌 签到请求失败", lines([
+          "📍 提交到：" + target,
+          "⚠️ " + friendlyError(err2),
+          "👉 稍后可再跑一次「手动签到」"
+        ]));
         console.log("sb-checkin: POST 失败 " + err2);
         $done();
         return;
@@ -1120,25 +1177,40 @@ function main() {
           var jtext = stripTags(jr[2]) || jmsg;
           if (jcls.indexOf("success") !== -1) {
             clearCookieInvalid();
-            notify("✅ 签到成功", jtext);
+            notify("✅ 签到成功", lines(signLines(jtext)));
           } else {
-            notify("❌ 签到未成功", jtext + (jmsg && jmsg !== jtext ? "\n" + jmsg : ""));
+            notify("❌ 签到未成功", lines([
+              "💬 " + jtext,
+              jmsg && jmsg !== jtext ? "📨 " + jmsg : ""
+            ]));
           }
           console.log("sb-checkin: JSON.html signin-result" + jcls + " | " + jtext);
         } else if (okVal) {
           clearCookieInvalid();
-          notify("✅ 签到成功", jmsg || "HTTP " + code2);
+          notify("✅ 签到成功", lines(signLines(jmsg || "HTTP " + code2)));
         } else if (/已签到/.test(jmsg)) {
           clearCookieInvalid();
-          notify("ℹ️ 今日已签到", jmsg || "无需重复签到");
+          notify("☑️ 今日已签到", lines(signLines(jmsg).concat(["💤 无需重复签到"])));
         } else if (/人机验证|captcha|cap-token|验证/i.test(jmsg)) {
-          notify("❌ 人机验证未通过", jmsg + "\n（Cap 验证可能已变更，请把这条提示反馈给作者）");
+          notify("🤖 人机验证未通过", lines([
+            "💬 " + jmsg,
+            "🧩 Cap 验证可能已变更",
+            "👉 请把这条提示反馈给作者"
+          ]));
           console.log("sb-checkin: 服务端返回人机验证相关错误");
         } else if (/登录|未登录|session/i.test(jmsg)) {
           markCookieInvalid("POST JSON: " + jmsg);
-          notify("❌ Cookie 已失效", "服务端返回：" + jmsg + savedHint + "。" + RELOGIN_HINT);
+          notify("🔑 Cookie 已失效", lines([
+            "💬 服务端：" + jmsg,
+            savedLine,
+            "👉 请重新登录论坛一次",
+            "🔐 插件会自动重新捕获 Cookie"
+          ]));
         } else {
-          notify("❌ 签到未成功", jmsg || "HTTP " + code2 + "\n" + brief(html2));
+          notify("❌ 签到未成功", lines([
+            "💬 " + (jmsg || "服务端未给原因"),
+            "🌐 HTTP " + code2
+          ]));
         }
         $done();
         return;
@@ -1152,9 +1224,12 @@ function main() {
         var text = stripTags(rm[2]);
         if (cls.indexOf("success") !== -1) {
           clearCookieInvalid();
-          notify("✅ 签到成功", text);
+          notify("✅ 签到成功", lines(signLines(text)));
         } else {
-          notify("❌ 签到未成功", text + "\nHTTP " + code2);
+          notify("❌ 签到未成功", lines([
+            "💬 " + text,
+            "🌐 HTTP " + code2
+          ]));
         }
         console.log("sb-checkin: signin-result" + cls + " | " + text);
         $done();
@@ -1164,7 +1239,7 @@ function main() {
       // 3) 已签到
       if (html2.indexOf("今日已签到") !== -1) {
         clearCookieInvalid();
-        notify("ℹ️ 今日已签到", "无需重复签到");
+        notify("☑️ 今日已签到", lines(["💤 无需重复签到"]));
         console.log("sb-checkin: 今日已签到（POST 阶段检测）");
         $done();
         return;
@@ -1172,7 +1247,11 @@ function main() {
 
       // 4) 地区限制
       if (looksRegionBlocked(html2)) {
-        notify("🚫 地区限制，签到达不到", "签到请求被地区限制拦截（HTTP " + code2 + "），请检查代理出口。");
+        notify("🚫 地区限制，无法签到", lines([
+          "⚠️ 签到请求被地区限制拦截",
+          "🌐 HTTP " + code2,
+          "👉 请检查代理出口"
+        ]));
         console.log("sb-checkin: POST 命中地区限制页");
         $done();
         return;
@@ -1188,10 +1267,14 @@ function main() {
           : "提交地址返回 404（会话失效或接口路径变化）";
         markCookieInvalid("POST " + (isLogin ? "落入登录页" : "HTTP 404"));
         notify(
-          "❌ 签到未成功（HTTP " + code2 + "）",
-          "提交到 " + target + "\n原因：" + why + savedHint +
-            "\n" + (isLogin ? RELOGIN_HINT : "若反复出现，可能是接口变更。") +
-            "\n页面标题「" + pageTitle(html2) + "」\n" + brief(html2)
+          "❌ 签到未成功",
+          lines([
+            "📍 提交到：" + target,
+            "🌐 HTTP " + code2 + " · " + why,
+            savedLine,
+            "👉 " + (isLogin ? "请重新登录论坛一次" : "若反复出现，可能是接口变更"),
+            "🏷️ 页面：" + (pageTitle(html2) || "无标题")
+          ])
         );
         console.log("sb-checkin: POST 失败判定 -> " + why);
         $done();
@@ -1202,9 +1285,16 @@ function main() {
       var kw = String(arg.success_keyword || "").trim();
       if (kw && html2.indexOf(kw) !== -1) {
         clearCookieInvalid();
-        notify("✅ 签到成功", "HTTP " + code2 + "\n" + brief(html2));
+        notify("✅ 签到成功", lines([
+          "🌐 HTTP " + code2,
+          "🔎 " + brief(html2)
+        ]));
       } else {
-        notify("⚠️ 签到结果待确认", "HTTP " + code2 + " · 提交到 " + target + "\n" + brief(html2));
+        notify("⚠️ 签到结果待确认", lines([
+          "🌐 HTTP " + code2,
+          "📍 提交到：" + target,
+          "🔎 " + brief(html2)
+        ]));
       }
       $done();
     });
@@ -1219,7 +1309,10 @@ function main() {
     console.log("sb-checkin: 正在请求 " + pageUrl);
     $httpClient.get(baseOptions(pageUrl), function (err, resp, data) {
     if (err) {
-      notify("❌ 请求失败（获取签到页）", String(err));
+      notify("🔌 签到页打不开", lines([
+        "📍 " + pageUrl,
+        "⚠️ " + friendlyError(err)
+      ]));
       console.log("sb-checkin: GET 失败 " + err);
       $done();
       return;
@@ -1230,10 +1323,11 @@ function main() {
 
     // 地区限制（该站对部分地区封锁，返回 404）
     if (looksRegionBlocked(html)) {
-      notify(
-        "🚫 地区限制，无法签到",
-        "论坛提示「暂未对您所在地区开放」（HTTP " + code + "）。请确认签到请求走了代理出口。"
-      );
+      notify("🚫 地区限制，无法签到", lines([
+        "⚠️ 论坛提示「暂未对您所在地区开放」",
+        "🌐 HTTP " + code,
+        "👉 请确认签到请求走了代理出口"
+      ]));
       console.log("sb-checkin: 命中地区限制页");
       $done();
       return;
@@ -1246,10 +1340,11 @@ function main() {
         console.log("sb-checkin: " + pageUrl + " 返回 404，自动改试 " + alt);
         return fetchCheckinPage(alt, false);
       }
-      notify(
-        "❌ 签到页不存在（HTTP 404）",
-        "GET " + pageUrl + " 返回 404。可能是接口路径变化或地区限制。\n" + brief(html)
-      );
+      notify("❌ 签到页不存在", lines([
+        "🌐 HTTP 404 · " + pageUrl,
+        "⚠️ 可能是接口路径变化或地区限制",
+        "🔎 " + brief(html)
+      ]));
       console.log("sb-checkin: GET 404");
       $done();
       return;
@@ -1257,7 +1352,12 @@ function main() {
 
     if (code === 401 || code === 403) {
       markCookieInvalid("GET HTTP " + code);
-      notify("❌ Cookie 已失效", "签到页返回 HTTP " + code + savedHint + "。" + RELOGIN_HINT);
+      notify("🔑 Cookie 已失效", lines([
+        "🌐 签到页返回 HTTP " + code,
+        savedLine,
+        "👉 请重新登录论坛一次",
+        "🔐 插件会自动重新捕获 Cookie"
+      ]));
       console.log("sb-checkin: GET 未授权 HTTP " + code);
       $done();
       return;
@@ -1266,10 +1366,12 @@ function main() {
     // 被重定向到登录页
     if (looksLoggedOut(html)) {
       markCookieInvalid("GET 跳转到登录页");
-      notify(
-        "❌ Cookie 已失效",
-        "签到页跳转到了登录页" + savedHint + "。" + RELOGIN_HINT
-      );
+      notify("🔑 Cookie 已失效", lines([
+        "⚠️ 签到页跳转到了登录页",
+        savedLine,
+        "👉 请重新登录论坛一次",
+        "🔐 插件会自动重新捕获 Cookie"
+      ]));
       console.log("sb-checkin: 页面为登录页，判定未登录");
       $done();
       return;
@@ -1278,7 +1380,7 @@ function main() {
     // 已签到
     if (html.indexOf("今日已签到") !== -1) {
       clearCookieInvalid();
-      notify("ℹ️ 今日已签到", "今天已经签过啦，明天再来");
+      notify("☑️ 今日已签到", lines(["💤 今天已经签过啦，明天再来"]));
       console.log("sb-checkin: 今日已签到（GET 阶段检测）");
       $done();
       return;
@@ -1287,10 +1389,12 @@ function main() {
     var csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
     if (!csrfMatch) {
       markCookieInvalid("GET 页面无 _csrf");
-      notify(
-        "❌ 无法获取 CSRF Token",
-        "签到页未包含 _csrf" + savedHint + "，Cookie 可能已失效。" + RELOGIN_HINT + "\n" + brief(html)
-      );
+      notify("🧩 无法获取 CSRF Token", lines([
+        "📍 " + pageUrl,
+        "⚠️ 签到页未包含 _csrf，Cookie 可能已失效",
+        savedLine,
+        "👉 请重新登录论坛一次"
+      ]));
       console.log("sb-checkin: 未找到 _csrf，HTTP " + code);
       $done();
       return;
@@ -1307,7 +1411,10 @@ function main() {
     if (method !== "POST") {
       var kw0 = String(arg.success_keyword || "").trim();
       var ok0 = kw0 ? html.indexOf(kw0) !== -1 : code >= 200 && code < 300;
-      notify(ok0 ? "✅ 签到页可访问" : "❌ 请求异常", "HTTP " + code + "\n" + brief(html));
+      notify(ok0 ? "✅ 签到页可访问" : "❌ 签到页请求异常", lines([
+        "🌐 HTTP " + code,
+        "🔎 " + brief(html)
+      ]));
       $done();
       return;
     }
@@ -1341,8 +1448,10 @@ function main() {
       capFetchToken(capEndpoint, ua, origin, function (capErr, capToken) {
         if (capErr) {
           var isNetFail = /无响应|均不通|timeout|Timeout|挑战请求失败|兑换请求失败|验证超时/i.test(capErr);
-          var hint = isNetFail
-            ? "\n\ncapjs.net 在当前出口不可达。把它加进你代理论坛用的那份分流规则里：" +
+          // 通知里只放「能立刻照做」的两步，完整说明进日志：
+          // 通知正文超过 4~5 行会被 iOS 截断，长段落放进去等于白写
+          var hintLog = isNetFail
+            ? "\ncapjs.net 在当前出口不可达。把它加进你代理论坛用的那份分流规则里：" +
               "\nDOMAIN-SUFFIX,capjs.net" +
               "\n（RULE-SET 规则列表直接加这一行；[Rule] 段则在后面补策略组名）" +
               "\n也可以把插件里的「Cap验证出口」填成真实存在的策略组名（多个用逗号分隔）；" +
@@ -1350,10 +1459,15 @@ function main() {
               "提示 can not find policy 并回退到全局第一个节点，等于白填。"
             : "";
           notify(
-            "❌ 人机验证失败",
-            "无法获取 cap-token：" + capErr + hint + "\n\n本次未提交签到。"
+            "🤖 人机验证失败",
+            lines([
+              "⚠️ 无法获取 cap-token：" + capErr,
+              isNetFail ? "👉 分流规则加一行：DOMAIN-SUFFIX,capjs.net" : "",
+              isNetFail ? "💡 或把「Cap验证出口」填成已存在的策略组名" : "",
+              "🚫 本次未提交签到"
+            ])
           );
-          console.log("sb-checkin: cap 失败 -> " + capErr);
+          console.log("sb-checkin: cap 失败 -> " + capErr + hintLog);
           $done();
           return;
         }

@@ -67,6 +67,23 @@ function finish() {
   $done({});
 }
 
+// 通知标题与签到脚本保持一致，便于在通知中心归组识别
+var NOTIFY_TITLE = "烧饼论坛签到";
+
+// 通知正文分行：过滤空行后按 \n 拼接
+function lines(arr) {
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var s = String(arr[i] == null ? "" : arr[i]).trim();
+    if (s) out.push(s);
+  }
+  return out.join("\n");
+}
+
+function notify(subtitle, content) {
+  $notification.post(NOTIFY_TITLE, subtitle, content || "");
+}
+
 /** Cookie 中是否包含会话键（用精确的 name= 匹配，避免子串误判） */
 function cookieHasSession(c) {
   var s = String(c || "");
@@ -121,10 +138,15 @@ function commit(value, ua, host, subtitle) {
   $persistentStore.write("", INVALID_KEY);
   if (ok) {
     console.log("sb-cookie: Cookie 已保存（长度 " + value.length + "，来源 " + host + "）");
-    $notification.post("sb.sb 论坛签到", subtitle, "自动签到将按计划执行");
+    notify(subtitle, lines([
+      "📍 来源：" + (host || "未知"),
+      "💤 自动签到将按计划执行"
+    ]));
   } else {
     console.log("sb-cookie: Cookie 写入失败");
-    $notification.post("sb.sb 论坛签到", "❌ Cookie 保存失败", "请重启 Loon 后重新访问论坛");
+    notify("❌ Cookie 保存失败", lines([
+      "👉 请重启 Loon 后重新访问论坛"
+    ]));
   }
 }
 
@@ -216,11 +238,11 @@ function main() {
             "，HTTP " + code + "，标题「" + pageTitle(html) + "」），已丢弃，保留原有 Cookie"
         );
         if (isFirstTry) {
-          $notification.post(
-            "sb.sb 论坛签到",
-            "⚠️ 未保存 Cookie（疑似未登录）",
-            "当前浏览会话看起来还是游客态，已保留原有 Cookie。\n若确实已登录，请下拉刷新一次论坛页面。"
-          );
+          notify("⚠️ 未保存 Cookie（疑似未登录）", lines([
+            "💬 当前浏览会话看起来还是游客态",
+            "🔐 已保留原有 Cookie",
+            "👉 若确实已登录，请下拉刷新一次论坛页面"
+          ]));
         }
         return finish();
       }
