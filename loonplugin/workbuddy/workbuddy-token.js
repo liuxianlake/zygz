@@ -26,6 +26,9 @@
   var SEEN_KEY = "wb_probe_seen";
   var TOKEN_HOST_KEY = "wb_token_host";
 
+  // 通知标题固定站点名，与同插件内的签到脚本保持一致
+  var NOTIFY_TITLE = "WorkBuddy 签到";
+
   var req = $request || {};
   var url = String(req.url || "");
   var headers = req.headers || {};
@@ -74,9 +77,9 @@
   if (!$persistentStore.read(SEEN_KEY)) {
     $persistentStore.write("1", SEEN_KEY);
     $notification.post(
-      "WorkBuddy 探针",
+      NOTIFY_TITLE,
       "✅ 规则已命中",
-      host + " · authLen=" + token.length + " uidLen=" + uidStr.length
+      "📡 " + host + " · authLen=" + token.length + " uidLen=" + uidStr.length
     );
   }
 
@@ -91,7 +94,7 @@
   var ok = $persistentStore.write(token, TOKEN_KEY);
   if (!ok) {
     console.log("[WB] 持久化写入失败");
-    $notification.post("WorkBuddy 签到", "❌ 登录态保存失败", "请重启 Loon 后重新打开 App");
+    $notification.post(NOTIFY_TITLE, "❌ 登录态保存失败", "请重启 Loon 后重新打开 App");
     return finish();
   }
 
@@ -106,9 +109,9 @@
   if (!oldToken) {
     // 首次捕获才打扰一次，之后刷新静默
     $notification.post(
-      "WorkBuddy 签到",
+      NOTIFY_TITLE,
       "✅ 登录态捕获成功",
-      "域名 " + host + "，令牌长度 " + token.length
+      "📡 域名 " + host + "，令牌长度 " + token.length
     );
   } else if (oldToken !== token) {
     console.log("[WB] 登录态已刷新：长度 " + oldToken.length + " → " + token.length);
