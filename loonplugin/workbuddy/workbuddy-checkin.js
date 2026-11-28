@@ -13,8 +13,9 @@
  * 避免服务端换天时间与本地不一致时误判漏签。
  *
  * 通知格式（两行）：
- *   ✅ 签到成功
- *   📊 +100 积分 · 连签 53 天
+ *   WorkBuddy 签到        ← title，固定站点名，与同插件其他脚本一致
+ *   ✅ 签到成功            ← subtitle，状态图标 + 结论
+ *   📊 +100 积分 · 连签 53 天  ← content，一行一字段
  *
  * 积分值取自签到接口返回的 data.credit（真实值，非写死）：官方若调整
  * 每日分值，通知会随之变化；两个来源都取不到时显示 ?，不编造数字。
@@ -42,11 +43,14 @@
     $done({});
   }
 
-  // 三行通知：title / subtitle / content
-  function notify(title, subtitle, content) {
-    $notification.post(title, subtitle || "WorkBuddy",
+  // 通知标题固定站点名，与同插件内的登录态捕获脚本保持一致
+  var NOTIFY_TITLE = "WorkBuddy 签到";
+
+  // 三行通知：title 固定站点名 / subtitle 状态图标 + 结论 / content 明细
+  function notify(subtitle, content) {
+    $notification.post(NOTIFY_TITLE, subtitle || "",
       (content === undefined || content === null) ? "" : String(content));
-    console.log("[WB-CK] " + title + " | " + (subtitle || "") + " | " + (content || ""));
+    console.log("[WB-CK] " + NOTIFY_TITLE + " | " + (subtitle || "") + " | " + (content || ""));
   }
 
   function pad(n) {
@@ -63,14 +67,14 @@
   }
 
   // 失败类提醒每天只弹一次，重试点不重复打扰
-  function notifyFail(title, content) {
+  function notifyFail(subtitle, content) {
     var today = todayStr();
     if ($persistentStore.read(FAIL_KEY) === today) {
-      console.log("[WB-CK] 今日已提示过失败，静默：" + title);
+      console.log("[WB-CK] 今日已提示过失败，静默：" + subtitle);
       return;
     }
     $persistentStore.write(today, FAIL_KEY);
-    notify(title, "WorkBuddy", content);
+    notify(subtitle, content);
   }
 
   function request(url, cb) {
@@ -105,7 +109,7 @@
 
   var token = String($persistentStore.read(TOKEN_KEY) || "").trim();
   if (!token) {
-    notifyFail("❌ 还没有登录态", "打开一次 App 即可自动捕获");
+    notifyFail("❌ 还没有登录态", "📱 打开一次 App 即可自动捕获");
     return done();
   }
 
@@ -121,7 +125,7 @@
 
   function nextHost() {
     if (idx >= hosts.length) {
-      notifyFail("❌ 登录态已失效", "打开一次 App 即可自动恢复");
+      notifyFail("❌ 登录态已失效", "📱 打开一次 App 即可自动恢复");
       return done();
     }
     var base = "https://" + hosts[idx++];
@@ -162,7 +166,7 @@
       // 未签到，执行
       request(base + CHECKIN_PATH, function (err2, status2, body2) {
         if (err2 || !body2) {
-          notifyFail("❌ 签到请求失败", String(err2 || "无响应"));
+          notifyFail("❌ 签到请求失败", "📡 " + String(err2 || "无响应"));
           return done();
         }
         var d2 = (body2.data && typeof body2.data === "object") ? body2.data : {};
@@ -189,7 +193,7 @@
           }
         } else {
           notifyFail("⚠️ 签到未成功",
-            "HTTP " + status2 + " · " + String(body2.msg || body2.error || ""));
+            "📡 HTTP " + status2 + " · " + String(body2.msg || body2.error || ""));
         }
         return done();
       });
